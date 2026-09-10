@@ -1,0 +1,38 @@
+name: Plan (ChatGPT)
+description: Plan phat trien do ChatGPT de xuat, OpenCode tu trien khai
+title: "[plan] <ten ngan>"
+labels: ["plan"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Muc tieu
+      description: Lam gi, cho ai, ket qua mong doi
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Pham vi file
+      description: Liet ke file tao/sua cu the
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Cac buoc thuc hien
+      description: Từng bước theo thứ tự
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Tieu chi nghiem thu
+      description: Dieu kien de coi la xong (build/test/manual check)
+    validations:
+      required: true
+  - type: input
+    id: base
+    attributes:
+      label: Nhanh nen
+      value: main
