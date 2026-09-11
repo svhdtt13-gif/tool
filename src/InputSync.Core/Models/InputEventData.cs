@@ -42,7 +42,9 @@ public readonly record struct KeyboardEventData(
     uint VirtualKey,
     uint ScanCode,
     KeyboardAction Action,
-    bool IsExtended = false);
+    bool IsExtended = false,
+    string Text = "",
+    Guid CorrelationId = default);
 
 public readonly record struct MouseEventData(
     nint TargetHwnd,
@@ -51,4 +53,5 @@ public readonly record struct MouseEventData(
     int Y,
     MouseButton Button = MouseButton.None,
     MouseButtonMask PressedButtons = MouseButtonMask.None,
-    int WheelDelta = 0);
+    int WheelDelta = 0,
+    Guid CorrelationId = default);

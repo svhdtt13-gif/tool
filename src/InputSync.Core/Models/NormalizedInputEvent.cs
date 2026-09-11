@@ -81,6 +81,12 @@ public sealed record NormalizedInputEvent
     /// <summary>Gets the signed mouse wheel delta.</summary>
     public int WheelDelta { get; init; }
 
+    /// <summary>
+    /// Gets the printable text produced by a key-down event (resolved with the
+    /// active keyboard layout at capture time). Empty for non-text keys.
+    /// </summary>
+    public string Text { get; init; } = string.Empty;
+
     /// <summary>Gets the coordinate-space identifier for the mouse coordinates.</summary>
     public string CoordinateSpace { get; init; } = string.Empty;
 

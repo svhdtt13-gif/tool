@@ -27,13 +27,17 @@ public sealed class InputCapture : IDisposable
     private readonly Channel<RawHookEvent> _rawEvents;
     private readonly Channel<NormalizedInputEvent> _events;
     private readonly EventNormalizer _normalizer;
+    private readonly IKeyboardLayoutTranslator? _translator;
     private readonly LowLevelHooks _hooks;
     private CancellationTokenSource? _captureCancellation;
     private Task? _processingTask;
     private nint _sourceHwnd;
     private bool _disposed;
 
-    public InputCapture(nint sourceHwnd, EventNormalizer? normalizer = null)
+    public InputCapture(
+        nint sourceHwnd,
+        EventNormalizer? normalizer = null,
+        IKeyboardLayoutTranslator? translator = null)
     {
         if (sourceHwnd == nint.Zero)
         {
@@ -42,6 +46,7 @@ public sealed class InputCapture : IDisposable
 
         _sourceHwnd = sourceHwnd;
         _normalizer = normalizer ?? new EventNormalizer();
+        _translator = translator;
         _rawEvents = Channel.CreateUnbounded<RawHookEvent>(new UnboundedChannelOptions
         {
             SingleReader = true,
@@ -187,7 +192,8 @@ public sealed class InputCapture : IDisposable
                 rawEvent.KeyboardData.VkCode,
                 rawEvent.KeyboardData.ScanCode,
                 rawEvent.KeyboardData.Flags,
-                rawEvent.KeyboardData.Time);
+                rawEvent.KeyboardData.Time,
+                TranslateText(action.Value, rawEvent));
     }
 
     private NormalizedInputEvent? NormalizeMouse(nint sourceHwnd, RawHookEvent rawEvent)
@@ -236,6 +242,26 @@ public sealed class InputCapture : IDisposable
 
     private static MouseButton GetXButton(uint mouseData) =>
         (ushort)(mouseData >> 16) == XBUTTON1 ? MouseButton.X1 : MouseButton.X2;
+
+    private string TranslateText(InputAction action, RawHookEvent rawEvent)
+    {
+        if (action != InputAction.KeyDown || _translator is null)
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            return _translator.Translate(
+                rawEvent.KeyboardData.VkCode,
+                rawEvent.KeyboardData.ScanCode,
+                rawEvent.KeyboardData.Flags) ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT

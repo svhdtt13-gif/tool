@@ -10,7 +10,8 @@ public sealed class EventNormalizer
         uint virtualKey,
         uint scanCode,
         uint flags,
-        long timestamp) =>
+        long timestamp,
+        string text = "") =>
         new()
         {
             SourceHwnd = sourceHwnd,
@@ -19,6 +20,8 @@ public sealed class EventNormalizer
             Vk = virtualKey,
             ScanCode = scanCode,
             Flags = flags,
+            Extended = (flags & 0x1u) != 0u,
+            Text = text ?? string.Empty,
             Timestamp = timestamp
         };
 
