@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using InputSync.Core.Controller;
 using InputSync.Core.Models;
+using InputSync.Win32;
 
 namespace InputSync.UI;
 
@@ -72,35 +73,56 @@ internal sealed class SampleSyncController : ISyncController
 
     public void RefreshWindows()
     {
+        nint previousSourceHwnd = Source?.Hwnd ?? 0;
+        HashSet<nint> previouslyEnabledTargets = Targets
+            .Where(target => target.Enabled)
+            .Select(target => target.Window.Hwnd)
+            .ToHashSet();
+
         Windows.Clear();
         Targets.Clear();
 
-        WindowInfo[] samples =
-        [
-            CreateWindow(0x1001, "Notepad - Source", 8101, "notepad", "Notepad", 1280, 720),
-            CreateWindow(0x1002, "Notepad - Target A", 8102, "notepad", "Notepad", 960, 540),
-            CreateWindow(0x1003, "Notepad - Target B", 8103, "notepad", "Notepad", 1920, 1080),
-            CreateWindow(0x1004, "Notepad - Closed", 8104, "notepad", "Notepad", 1280, 720),
-        ];
+        IReadOnlyList<WindowInfo> discovered;
+        try
+        {
+            discovered = WindowManager.EnumerateWindows();
+        }
+        catch (Exception exception) when (exception is not StackOverflowException)
+        {
+            Source = null;
+            Metrics.ActiveTargets = 0;
+            Metrics.LostTargets = 0;
+            State = SyncState.ERROR;
+            StatusText = "WINDOW DISCOVERY ERROR";
+            AddLog($"Window discovery failed: {exception.Message}");
+            return;
+        }
 
-        foreach (WindowInfo window in samples)
+        foreach (WindowInfo window in discovered)
         {
             Windows.Add(window);
         }
 
-        Source = samples[0];
-        AddTarget(new SyncTarget(samples[1]));
-        AddTarget(new SyncTarget(samples[2], enabled: false));
-        SyncTarget lost = new(samples[3]);
-        lost.Status = TargetStatus.WINDOW_LOST;
-        AddTarget(lost);
+        WindowInfo? restoredSource = discovered.FirstOrDefault(window => window.Hwnd == previousSourceHwnd);
+        Source = restoredSource ?? discovered.FirstOrDefault();
+
+        foreach (WindowInfo window in discovered)
+        {
+            if (window.Hwnd == Source?.Hwnd)
+            {
+                continue;
+            }
+
+            AddTarget(new SyncTarget(window, enabled: previouslyEnabledTargets.Contains(window.Hwnd)));
+        }
+
         UpdateTargetMetrics();
-        AddLog("Window list refreshed (sample discovery data)." );
+        AddLog($"Window list refreshed: {discovered.Count} real top-level windows discovered.");
     }
 
     public void Start()
     {
-        if (Source is null)
+        if (Source is null || !WindowManager.IsWindowValid(Source.Hwnd))
         {
             State = SyncState.ERROR;
             StatusText = "SOURCE LOST";
@@ -108,9 +130,22 @@ internal sealed class SampleSyncController : ISyncController
             return;
         }
 
+        foreach (SyncTarget target in Targets)
+        {
+            if (target.Enabled && !WindowManager.IsWindowValid(target.Window.Hwnd))
+            {
+                target.Status = TargetStatus.WINDOW_LOST;
+            }
+            else if (target.Enabled)
+            {
+                target.Status = TargetStatus.ACTIVE;
+            }
+        }
+
+        UpdateTargetMetrics();
         State = SyncState.RUNNING;
         StatusText = "RUNNING";
-        AddLog("Synchronization started.");
+        AddLog($"Synchronization started: source HWND {Source.Hwnd}, {Metrics.ActiveTargets} active target(s).");
     }
 
     public void Pause()
@@ -138,15 +173,6 @@ internal sealed class SampleSyncController : ISyncController
         StatusText = "READY";
         AddLog("EMERGENCY STOP requested; release-all requested.");
     }
-
-    private static WindowInfo CreateWindow(
-        long hwnd,
-        string title,
-        uint processId,
-        string processName,
-        string className,
-        int width,
-        int height) => new((nint)hwnd, title, processId, processName, className, true, width, height);
 
     private void AddTarget(SyncTarget target)
     {
