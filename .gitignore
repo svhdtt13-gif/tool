@@ -1,0 +1,8 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+# Visual Studio
+.vs/
+*.user
+# Test results
+TestResults/
