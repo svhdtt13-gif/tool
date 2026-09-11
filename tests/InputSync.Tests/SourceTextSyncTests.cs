@@ -79,6 +79,23 @@ public sealed class SourceTextSyncTests
     }
 
     [Fact]
+    public void Trace_ReportsSnapshotDiffEmit()
+    {
+        string current = "";
+        var emitted = new List<string>();
+        var traces = new List<string>();
+        var sync = new SourceTextSync(() => current, emitted.Add, trace: traces.Add);
+        sync.Sync();
+
+        current = "ab";
+        sync.Sync();
+
+        Assert.Single(traces);
+        Assert.Contains("snaplen=0", traces[0]);
+        Assert.Contains("backs=0", traces[0]);
+    }
+
+    [Fact]
     public void SyncStable_WaitsForSettledText_BeforeEmitting()
     {
         var reads = new Queue<string>(new[] { "", "a", "ab", "ab", "ab" });
