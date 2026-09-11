@@ -20,6 +20,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
     private readonly Func<CoordinateMode> _getCoordinateMode;
     private readonly TargetEndpointResolver _resolver;
     private readonly LatencyTracker _latency;
+    private readonly Action<string>? _trace;
     private readonly Win32MessageAdapter _inner = new();
     private long _eventsDispatched;
     private long _sendFailures;
@@ -28,12 +29,14 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         Func<nint> sourceHwnd,
         Func<CoordinateMode> coordinateMode,
         TargetEndpointResolver? resolver = null,
-        LatencyTracker? latency = null)
+        LatencyTracker? latency = null,
+        Action<string>? trace = null)
     {
         _getSourceHwnd = sourceHwnd ?? throw new ArgumentNullException(nameof(sourceHwnd));
         _getCoordinateMode = coordinateMode ?? throw new ArgumentNullException(nameof(coordinateMode));
         _resolver = resolver ?? new TargetEndpointResolver();
         _latency = latency ?? new LatencyTracker();
+        _trace = trace;
     }
 
     public LatencyTracker Latency => _latency;
@@ -86,9 +89,17 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 return Fail(eventData.CorrelationId);
             }
 
-            if (!TryTranslateTopLevel(eventData, out int x, out int y))
+            if (!TryTranslateTopLevel(eventData, out int x, out int y, out string trace))
             {
                 return Fail(eventData.CorrelationId);
+            }
+
+            try
+            {
+                _trace?.Invoke(trace);
+            }
+            catch
+            {
             }
 
             var routed = eventData with { X = x, Y = y };
@@ -135,11 +146,9 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         }
     }
 
-    private bool TryTranslateTopLevel(MouseEventData eventData, out int x, out int y) =>
-        TryTranslate(eventData, eventData.TargetHwnd, out x, out y);
-
-    private bool TryTranslate(MouseEventData eventData, nint targetTopLevel, out int x, out int y)
+    private bool TryTranslateTopLevel(MouseEventData eventData, out int x, out int y, out string trace)
     {
+        trace = string.Empty;
         x = 0;
         y = 0;
 
@@ -149,29 +158,37 @@ public sealed class SyncTargetAdapter : ITargetAdapter
             return false;
         }
 
-        if (!GetClientRect(targetTopLevel, out RECT targetRect))
+        if (!GetClientRect(eventData.TargetHwnd, out RECT targetRect))
         {
             return false;
         }
+
+        int sourceWidth = sourceRect.Right - sourceRect.Left;
+        int sourceHeight = sourceRect.Bottom - sourceRect.Top;
+        int targetWidth = targetRect.Right - targetRect.Left;
+        int targetHeight = targetRect.Bottom - targetRect.Top;
+        double normalizedX = sourceWidth > 0 ? (double)eventData.X / sourceWidth : 0;
+        double normalizedY = sourceHeight > 0 ? (double)eventData.Y / sourceHeight : 0;
 
         if (_getCoordinateMode() == CoordinateMode.Absolute)
         {
             x = eventData.X;
             y = eventData.Y;
-            return true;
         }
-
-        int sourceWidth = sourceRect.Right - sourceRect.Left;
-        int sourceHeight = sourceRect.Bottom - sourceRect.Top;
-        if (sourceWidth <= 0 || sourceHeight <= 0)
+        else
         {
-            return false;
+            if (sourceWidth <= 0 || sourceHeight <= 0)
+            {
+                return false;
+            }
+
+            x = (int)Math.Round(normalizedX * targetWidth);
+            y = (int)Math.Round(normalizedY * targetHeight);
         }
 
-        int targetWidth = targetRect.Right - targetRect.Left;
-        int targetHeight = targetRect.Bottom - targetRect.Top;
-        x = (int)Math.Round((double)eventData.X / sourceWidth * targetWidth);
-        y = (int)Math.Round((double)eventData.Y / sourceHeight * targetHeight);
+        trace = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY}) src=({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight} -> ({x},{y})");
         return true;
     }
 

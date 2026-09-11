@@ -220,6 +220,8 @@ public sealed class InputCapture : IDisposable
         }
 
         LowLevelHooks.POINT point = rawEvent.MouseData.Point;
+        int rawX = point.X;
+        int rawY = point.Y;
         if (!ScreenToClient(sourceHwnd, ref point))
         {
             return null;
@@ -238,7 +240,11 @@ public sealed class InputCapture : IDisposable
             clientRect.Bottom - clientRect.Top,
             Stopwatch.GetTimestamp(),
             mapping.Value.Button,
-            wheelDelta);
+            wheelDelta) with
+        {
+            RawX = rawX,
+            RawY = rawY,
+        };
     }
 
     private static MouseButton GetXButton(uint mouseData) =>

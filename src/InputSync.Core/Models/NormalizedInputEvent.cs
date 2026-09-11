@@ -69,6 +69,12 @@ public sealed record NormalizedInputEvent
     /// <summary>Gets the mouse Y coordinate.</summary>
     public int Y { get; init; }
 
+    /// <summary>Gets the raw screen coordinates before client mapping, for trace contrast.</summary>
+    public int RawX { get; init; }
+
+    /// <summary>Gets the raw screen coordinates before client mapping, for trace contrast.</summary>
+    public int RawY { get; init; }
+
     /// <summary>Gets the horizontal coordinate normalized to the source client area.</summary>
     public double NormalizedX { get; init; }
 
