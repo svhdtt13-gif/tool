@@ -20,6 +20,22 @@ public sealed class Win32HelperTests
     }
 
     [Fact]
+    public void Translator_ControlKeys_ProduceNoText()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var translator = new KeyboardLayoutTranslator();
+
+        foreach (uint vk in new uint[] { 0x10, 0x11, 0x12, 0x25, 0x26, 0x27, 0x28, 0x70, 0x14 })
+        {
+            Assert.Equal(string.Empty, translator.Translate(vk, 0, 0));
+        }
+    }
+
+    [Fact]
     public void Translator_NeverThrows()
     {
         if (!OperatingSystem.IsWindows())
