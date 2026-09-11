@@ -93,7 +93,11 @@ Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 
   gõ liên tục không dứt thì timeout vẫn emit hiện tại, không mất chữ.
 - Chuột scale theo top-level client rect Source → top-level client rect
   Target (tỷ lệ tương đối, miễn nhiễm DPI); không dùng kích thước Edit
-  child. Keyboard vẫn post vào Edit child để nhận `WM_CHAR`.
+  child. Keyboard vẫn post vào Edit child để nhận `WM_CHAR`. Panel DEBUG
+  hiện dòng trace live: raw[phys] → logical@dpi → client → normalized →
+  target@DPI → translated.
+- Game thật là acceptance bắt buộc (Notepad chỉ là nền): xem ma trận
+  backend và cách xác định trong [docs/INPUT_BACKENDS.md](docs/INPUT_BACKENDS.md).
 - Clipboard: `Ctrl+C/X` không forward (target không được ghi đè clipboard
   chung); nội dung copy được snapshot nội bộ theo clipboard sequence.
   `Ctrl+V` phát đúng snapshot đó tới từng target; không có text thì

@@ -125,4 +125,21 @@ public sealed class SourceTextSyncTests
 
         await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(10));
     }
+
+    [Fact]
+    public async Task ConcurrentSync_StaticText_EmitsNothing()
+    {
+        var emitted = new List<string>();
+        var sync = new SourceTextSync(() => "steady", emitted.Add);
+        sync.Sync();
+
+        var tasks = new Task[8];
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            tasks[i] = Task.Run(() => sync.Sync());
+        }
+
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Empty(emitted);
+    }
 }
