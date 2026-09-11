@@ -35,6 +35,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private readonly TargetEndpointResolver _endpointResolver = new();
     private readonly HashSet<uint> _textHeld = [];
+    private readonly MoveCoalescer _moveCoalescer = new();
     private readonly object _clipLock = new();
     private DebouncedTextSync? _debouncer;
     private string? _clipboardText;
@@ -325,6 +326,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _engine.Pause();
             State = SyncState.PAUSED;
             StatusText = "PAUSED";
+            FlushPendingMove();
             SyncUiState(force: true);
             AddLog("Synchronization paused.");
         }
@@ -382,6 +384,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         lock (_lifecycleGate)
         {
             _textHeld.Clear();
+            _moveCoalescer.Clear();
             try
             {
                 _debouncer?.Flush();
@@ -411,6 +414,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpCancellation?.Cancel();
             _pumpTask = null;
             _monitorTask = null;
+            _moveCoalescer.Clear();
             try
             {
                 _debouncer?.Dispose();
@@ -521,6 +525,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 bool queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
+                    FlushPendingMove();
                     bool altHeld = IsAsyncDown(VK_MENU);
                     bool ctrlHeld = IsAsyncDown(VK_CONTROL);
                     bool shiftHeld = IsAsyncDown(VK_SHIFT);
@@ -541,7 +546,24 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 }
                 else
                 {
-                    queued = _engine.TryQueueMouse(ToMouse(evt));
+                    MouseEventData mouse = ToMouse(evt);
+                    if (mouse.Action == MouseAction.Move)
+                    {
+                        if (_moveCoalescer.OfferMove(mouse, out MouseEventData toSend))
+                        {
+                            queued = _engine.TryQueueMouse(toSend);
+                        }
+                        else
+                        {
+                            SyncUiState(force: false);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        FlushPendingMove();
+                        queued = _engine.TryQueueMouse(mouse);
+                    }
                 }
 
                 if (!queued)
@@ -581,6 +603,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
             nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id);
     }
 
+    private void FlushPendingMove()
+    {
+        if (_moveCoalescer.Flush(out MouseEventData pending)
+            && !_engine.TryQueueMouse(pending))
+        {
+            Interlocked.Increment(ref _eventsDropped);
+        }
+    }
+
     private void HandleTextKey(NormalizedInputEvent evt)
     {
         bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
@@ -600,7 +631,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
         if (evt.Vk == ClipboardKeys.V && isDown)
         {
-            PasteFromClipboardSnapshot(evt);
+            PasteFromClipboardSnapshot(evt, cancellationToken);
             return;
         }
 
@@ -654,7 +685,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }, CancellationToken.None);
     }
 
-    private void PasteFromClipboardSnapshot(NormalizedInputEvent evt)
+    private void PasteFromClipboardSnapshot(NormalizedInputEvent evt, CancellationToken cancellationToken)
     {
         string? paste = null;
         lock (_clipLock)
@@ -673,11 +704,27 @@ public sealed class RealSyncController : ISyncController, IDisposable
             {
                 _debouncer?.Flush();
                 EmitTextToTargets(paste);
-                _textSync?.AdoptUntilChanged();
             }
             finally
             {
-                _debouncer?.Resume();
+                try
+                {
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            _textSync?.AdoptUntilChanged();
+                        }
+                        finally
+                        {
+                            _debouncer?.Resume();
+                        }
+                    }, cancellationToken);
+                }
+                catch
+                {
+                    _debouncer?.Resume();
+                }
             }
 
             return;
@@ -921,6 +968,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
+                    FlushPendingMove();
                     _debouncer?.Trigger();
                     SyncUiState(force: false);
                 }
