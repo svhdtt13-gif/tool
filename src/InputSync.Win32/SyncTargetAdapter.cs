@@ -191,9 +191,10 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         int targetDpi = GetDpiForWindowSafe(eventData.TargetHwnd);
         int logicalX = DpiScale.ToLogical(eventData.RawX, pointDpi);
         int logicalY = DpiScale.ToLogical(eventData.RawY, pointDpi);
+        string range = x >= 0 && y >= 0 && x <= targetWidth && y <= targetHeight ? "range=OK" : "range=*OFF*";
         trace = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY})[phys] scr=({logicalX},{logicalY})[log@{pointDpi}] src=({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight}@dpi{targetDpi} -> ({x},{y})");
+            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY})[phys] scr=({logicalX},{logicalY})[log@{pointDpi}] src=({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight}@dpi{targetDpi} -> ({x},{y}) {range}");
         return true;
     }
 

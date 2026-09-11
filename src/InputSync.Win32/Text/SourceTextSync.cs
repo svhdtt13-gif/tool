@@ -12,16 +12,22 @@ public sealed class SourceTextSync
 {
     private readonly Func<string?> _readText;
     private readonly Action<string> _emitText;
+    private readonly Action<string>? _trace;
     private readonly int _maxLength;
     private readonly object _gate = new();
     private string? _snapshot;
 
-    public SourceTextSync(Func<string?> readText, Action<string> emitText, int maxLength = 30000)
+    public SourceTextSync(
+        Func<string?> readText,
+        Action<string> emitText,
+        int maxLength = 30000,
+        Action<string>? trace = null)
     {
         _readText = readText ?? throw new ArgumentNullException(nameof(readText));
         _emitText = emitText ?? throw new ArgumentNullException(nameof(emitText));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLength);
         _maxLength = maxLength;
+        _trace = trace;
     }
 
     public string Sync()
@@ -78,6 +84,7 @@ public sealed class SourceTextSync
             }
 
             TextEdit edit = TextDiffer.Compute(_snapshot, current, _maxLength);
+            Trace($"text snaplen={_snapshot.Length} cur={Describe(current)} backs={edit.Backspaces} ins={Describe(edit.Inserted)}");
             _snapshot = current;
             if (edit.IsEmpty)
             {
@@ -173,6 +180,27 @@ public sealed class SourceTextSync
         {
             return null;
         }
+    }
+
+    private void Trace(string line)
+    {
+        try
+        {
+            _trace?.Invoke(line);
+        }
+        catch
+        {
+        }
+    }
+
+    private static string Describe(string text)
+    {
+        string clean = text
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n")
+            .Replace("\b", "\\b")
+            .Replace("\t", "\\t");
+        return clean.Length <= 48 ? $"\"{clean}\"" : $"\"{clean.Substring(0, 48)}…\"";
     }
 
     private string Truncate(string text) =>

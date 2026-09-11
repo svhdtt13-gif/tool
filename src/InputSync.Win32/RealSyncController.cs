@@ -291,7 +291,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 _clipboardSeq = 0;
             }
 
-            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets);
+            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets, trace: AddLog);
             _textSync.Sync();
             _debouncer?.Dispose();
             _debouncer = new DebouncedTextSync(() => _textSync.SyncStable());

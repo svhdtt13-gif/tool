@@ -32,6 +32,18 @@ Win32 messages do not work with every input backend.
   forward as `WM_KEYDOWN`/`WM_KEYUP` with per-target pressed-state
   tracking and release-all on Stop/Emergency.
 
+## Runtime evidence (this machine, 2026-09-11)
+
+- `ForegroundSendInputAdapter` verified live: fresh Notepad focused via
+  `AttachThreadInput` + `SetForegroundWindow`, typed `qkp123` through
+  `SendInput` down/up pairs, read back exact via `WM_GETTEXT`. PASS.
+- Typing `test123` instead produced `t�t123`: the global Vietnamese IME
+  (`UniKeyNT`) intercepted the synthetic `es` as a Telex sắc-tone
+  composition and raced the stream. Lesson: synthetic keystrokes go
+  through any active IME/hook exactly like physical ones — Telex-trigger
+  sequences must be expected in test strings, and Unikey-style composition
+  is why the broadcast path mirrors observed text instead of raw keys.
+
 ## Reporting a game test
 
 Include: game title + version, windowed/fullscreen, which backend you
