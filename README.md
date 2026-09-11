@@ -90,6 +90,12 @@ Alt+menu) chạy trên target từ clipboard/state hệ thống chung; text-mirr
 chỉ quan sát im lặng lúc đó nên không duplicate. Thả modifier ra, gõ
 thường tiếp tục mirror bình thường.
 
+Clipboard (PR #9): `Ctrl+C/A` forward để target tự copy/select;
+`Ctrl+X/Z/Y` mirror qua diff; `Ctrl+V` đọc clipboard live
+(`CF_UNICODETEXT`, giữ nguyên Unicode/tiếng Việt) rồi phát text tới
+từng target — target luôn paste đúng nội dung Source kể cả khi
+clipboard riêng của nó khác. Không có text thì forward phím V như cũ.
+
 Giới hạn known: app/game không đọc được text (ô chat game...) thì phím chữ
 trong đó không mirror được; phím điều khiển vẫn forward bình thường.
 
