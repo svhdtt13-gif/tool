@@ -83,12 +83,12 @@ public sealed class ModifierKeyTests
     [Theory]
     [InlineData(0x41, false, false, false)]
     [InlineData(0x41, true, false, true)]
-    [InlineData(0x41, true, true, false)]
-    [InlineData(0x41, false, true, false)]
+    [InlineData(0x41, true, true, true)]
+    [InlineData(0x41, false, true, true)]
     [InlineData(0x10, false, false, true)]
     [InlineData(0x25, true, true, true)]
     [InlineData(0x70, false, false, true)]
-    public void ShouldForwardAsControl_AltExempt_CtrlAltStaysText(
+    public void ShouldForwardAsControl_ModifierHeld_ForwardsLetter(
         uint vk, bool alt, bool ctrl, bool expected) =>
         Assert.Equal(expected, KeyClassifier.ShouldForwardAsControl(vk, alt, ctrl));
 
