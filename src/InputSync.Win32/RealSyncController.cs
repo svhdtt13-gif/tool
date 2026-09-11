@@ -291,7 +291,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets);
             _textSync.Sync();
             _debouncer?.Dispose();
-            _debouncer = new DebouncedTextSync(() => _textSync.Sync());
+            _debouncer = new DebouncedTextSync(() => _textSync.SyncStable());
 
             if (!_engine.Start())
             {

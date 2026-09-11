@@ -32,17 +32,53 @@ public sealed class SourceTextSync
             return string.Empty;
         }
 
+        return EmitFor(Truncate(current));
+    }
+
+    public string SyncStable(int pollMs = 10, int timeoutMs = 300)
+    {
+        string? first = Read();
+        if (first is null)
+        {
+            return string.Empty;
+        }
+
+        string previous = Truncate(first);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            System.Threading.Thread.Sleep(pollMs);
+            string? current = Read();
+            if (current is null)
+            {
+                return string.Empty;
+            }
+
+            string truncated = Truncate(current);
+            if (string.Equals(truncated, previous, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            previous = truncated;
+        }
+
+        return EmitFor(previous);
+    }
+
+    private string EmitFor(string current)
+    {
         TextEdit edit;
         lock (_gate)
         {
             if (_snapshot is null)
             {
-                _snapshot = Truncate(current);
+                _snapshot = current;
                 return string.Empty;
             }
 
             edit = TextDiffer.Compute(_snapshot, current, _maxLength);
-            _snapshot = Truncate(current);
+            _snapshot = current;
         }
 
         if (edit.IsEmpty)

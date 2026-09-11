@@ -86,13 +86,12 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 return Fail(eventData.CorrelationId);
             }
 
-            nint endpoint = _resolver.Resolve(eventData.TargetHwnd);
-            if (!TryTranslate(eventData, endpoint, out int x, out int y))
+            if (!TryTranslateTopLevel(eventData, out int x, out int y))
             {
                 return Fail(eventData.CorrelationId);
             }
 
-            var routed = eventData with { TargetHwnd = endpoint, X = x, Y = y };
+            var routed = eventData with { X = x, Y = y };
             return _inner.SendMouse(routed) ? Succeed(eventData.CorrelationId) : Fail(eventData.CorrelationId);
         }
         catch
@@ -136,7 +135,10 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         }
     }
 
-    private bool TryTranslate(MouseEventData eventData, nint endpoint, out int x, out int y)
+    private bool TryTranslateTopLevel(MouseEventData eventData, out int x, out int y) =>
+        TryTranslate(eventData, eventData.TargetHwnd, out x, out y);
+
+    private bool TryTranslate(MouseEventData eventData, nint targetTopLevel, out int x, out int y)
     {
         x = 0;
         y = 0;
@@ -147,7 +149,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
             return false;
         }
 
-        if (!GetClientRect(endpoint, out RECT targetRect))
+        if (!GetClientRect(targetTopLevel, out RECT targetRect))
         {
             return false;
         }
