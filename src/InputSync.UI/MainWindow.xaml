@@ -1,0 +1,267 @@
+<Window x:Class="InputSync.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:InputSync.UI"
+        xmlns:models="clr-namespace:InputSync.Core.Models;assembly=InputSync.Core"
+        Title="Input Synchronizer"
+        Width="1120"
+        Height="760"
+        MinWidth="960"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <local:OnOffConverter x:Key="OnOffConverter" />
+        <Style x:Key="PanelStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+            <Setter Property="Padding" Value="16" />
+        </Style>
+        <Style x:Key="SectionLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource MutedInkBrush}" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource OnDarkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="DarkButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource OnDarkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource InkBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="DangerButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource DangerBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource OnDarkBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="ToggleStyle" TargetType="ToggleButton">
+            <Setter Property="MinWidth" Value="104" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="12,8" />
+            <Setter Property="Background" Value="{StaticResource InkBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource OnDarkBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="72" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="88" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="{StaticResource InkBrush}" Padding="24,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="INPUT SYNCHRONIZER" FontSize="28" FontWeight="Light" Foreground="{StaticResource OnDarkBrush}" />
+                    <TextBlock Text="Windows input routing control" Foreground="{StaticResource BorderBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="STATUS" Foreground="{StaticResource BorderBrush}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <Border x:Name="OverallStatusBadge" Padding="12,6" CornerRadius="16">
+                        <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" Foreground="{StaticResource OnDarkBrush}" />
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource InkBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding StatusText}" Value="RUNNING">
+                                        <Setter Property="Background" Value="{StaticResource SuccessBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding StatusText}" Value="PAUSED">
+                                        <Setter Property="Background" Value="{StaticResource WarningBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding StatusText}" Value="SOURCE LOST">
+                                        <Setter Property="Background" Value="{StaticResource DangerBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Margin="24,20,24,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="16" />
+                <ColumnDefinition Width="2*" />
+            </Grid.ColumnDefinitions>
+
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Style="{StaticResource PanelStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="SourceLabel" Text="SOURCE WINDOW" Style="{StaticResource SectionLabelStyle}" />
+                        <ComboBox x:Name="SourceComboBox"
+                                  Grid.Row="1"
+                                  ItemsSource="{Binding Windows}"
+                                  SelectedItem="{Binding Source, Mode=TwoWay}"
+                                  DisplayMemberPath="Title"
+                                  AutomationProperties.LabeledBy="{Binding ElementName=SourceLabel}"
+                                  AutomationProperties.Name="Source window" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource PanelStyle}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="TARGETS" Style="{StaticResource SectionLabelStyle}" />
+                        <ListBox Grid.Row="1" ItemsSource="{Binding Targets}" BorderThickness="0" Background="Transparent" AutomationProperties.Name="Target windows">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid MinHeight="48" Margin="0,2">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <CheckBox IsChecked="{Binding Enabled, Mode=TwoWay}" VerticalAlignment="Center" AutomationProperties.Name="Enable target" />
+                                        <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Window.Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                                            <TextBlock Foreground="{StaticResource MutedInkBrush}" FontSize="12">
+                                                <Run Text="{Binding Window.ProcessName}" /><Run Text="  ·  HWND " /><Run Text="{Binding Window.Hwnd}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <Border Grid.Column="2" Padding="8,4" CornerRadius="16" VerticalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="{StaticResource SuccessBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static models:TargetStatus.DISABLED}">
+                                                            <Setter Property="Background" Value="{StaticResource WarningBrush}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="{x:Static models:TargetStatus.WINDOW_LOST}">
+                                                            <Setter Property="Background" Value="{StaticResource DangerBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource OnDarkBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Status}" Value="{x:Static models:TargetStatus.DISABLED}">
+                                                                <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Button Grid.Row="2" Content="_REFRESH WINDOWS" Click="RefreshWindows_Click" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="4" Style="{StaticResource PanelStyle}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="8" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="24" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <ToggleButton Grid.Column="0" Style="{StaticResource ToggleStyle}" IsChecked="{Binding KeyboardEnabled, Mode=TwoWay}" AutomationProperties.Name="Keyboard synchronization">
+                            <TextBlock><Run Text="KEYBOARD "/><Run Text="{Binding KeyboardEnabled, Converter={StaticResource OnOffConverter}}" /></TextBlock>
+                        </ToggleButton>
+                        <ToggleButton Grid.Column="2" Style="{StaticResource ToggleStyle}" IsChecked="{Binding MouseEnabled, Mode=TwoWay}" AutomationProperties.Name="Mouse synchronization">
+                            <TextBlock><Run Text="MOUSE "/><Run Text="{Binding MouseEnabled, Converter={StaticResource OnOffConverter}}" /></TextBlock>
+                        </ToggleButton>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="COORDINATE MODE" Style="{StaticResource SectionLabelStyle}" />
+                            <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=CoordinateModes}"
+                                      SelectedItem="{Binding CoordinateMode, Mode=TwoWay}"
+                                      AutomationProperties.Name="Coordinate mode" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="16" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Style="{StaticResource PanelStyle}">
+                    <StackPanel>
+                        <TextBlock Text="METRICS" Style="{StaticResource SectionLabelStyle}" />
+                        <UniformGrid Columns="2">
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Events received" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsReceived}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="8"><TextBlock Text="Events dispatched" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsDispatched}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Events dropped" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsDropped}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="8"><TextBlock Text="Active targets" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.ActiveTargets}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Lost targets" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.LostTargets}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="8"><TextBlock Text="Avg latency" Foreground="{StaticResource MutedInkBrush}" /><TextBlock FontFamily="Cascadia Mono, Consolas" FontSize="20"><Run Text="{Binding Metrics.AverageLatencyMs, StringFormat={}{0:F2}}"/><Run Text=" ms"/></TextBlock></StackPanel>
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Max latency" Foreground="{StaticResource MutedInkBrush}" /><TextBlock FontFamily="Cascadia Mono, Consolas" FontSize="20"><Run Text="{Binding Metrics.MaxLatencyMs, StringFormat={}{0:F2}}"/><Run Text=" ms"/></TextBlock></StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource PanelStyle}" Visibility="{Binding DebugEnabled, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="DEBUG EVENT LOG · MEMORY ONLY · MAX 200" Style="{StaticResource SectionLabelStyle}" />
+                        <ListBox Grid.Row="1" ItemsSource="{Binding EventLog}" FontFamily="Cascadia Mono, Consolas" FontSize="12" BorderThickness="0" Background="Transparent" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" Padding="24,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="240" />
+                </Grid.ColumnDefinitions>
+                <UniformGrid Columns="3">
+                    <Button Content="_START SYNC" Style="{StaticResource PrimaryButtonStyle}" Click="Start_Click" Margin="0,0,8,0" />
+                    <Button Content="_PAUSE" Style="{StaticResource DarkButtonStyle}" Click="Pause_Click" Margin="0,0,8,0" />
+                    <Button Content="S_TOP" Click="Stop_Click" />
+                </UniformGrid>
+                <Button Grid.Column="2" Content="EMERGENCY STOP · F10" Style="{StaticResource DangerButtonStyle}" Click="EmergencyStop_Click" AutomationProperties.Name="Emergency stop" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

@@ -1,1 +1,93 @@
-# tool
+# Input Synchronizer
+
+Windows tool: chọn **1 cửa sổ nguồn (Source)** và **nhiều cửa sổ đích (Targets)**.
+Thao tác bàn phím + chuột từ Source được chuẩn hóa rồi phân phối tới các Target.
+Triển khai cho [issue #2](https://github.com/svhdtt13-gif/tool/issues/2).
+
+```
+Source: Game A
+Targets: Game B, Game C, Game D
+
+Game A input
+    ↓
+Capture → Normalize → Queue → Dispatcher
+                         ↓
+                 ┌───────┼───────┐
+                 ↓       ↓       ↓
+               Game B  Game C  Game D
+```
+
+> Lưu ý: Win32 message là adapter MVP. App/game dùng Raw Input, DirectInput
+> hoặc engine-specific input có thể cần adapter khác. Không né anti-cheat
+> hay cơ chế bảo vệ của phần mềm.
+
+## Kiến trúc
+
+```
+WindowManager → InputCapture → EventNormalizer → EventQueue
+    → EventDispatcher → TargetAdapter → Target HWNDs
+```
+
+| Project | Nội dung |
+|---|---|
+| `src/InputSync.Core` | Models, Capture (hooks), Normalizer, Queue, Dispatcher, Safety, Controller, Persistence |
+| `src/InputSync.Win32` | P/Invoke, `WindowManager`, `Win32MessageAdapter` (PostMessage), `ForegroundSendInputAdapter` |
+| `src/InputSync.UI` | WPF UI: Source/Targets, Start/Pause/Stop, Emergency Stop, metrics |
+| `tests/InputSync.Tests` | xUnit: Normalizer, Queue, StateTracker, Config |
+
+Nguyên tắc bắt buộc (từ issue):
+
+1. HWND là runtime identity; title chỉ để hiển thị.
+2. Capture và Dispatch tách thread/queue (Channel bounded).
+3. Mouse dùng client-relative/normalized coordinates.
+4. State bàn phím/chuột theo dõi riêng từng target.
+5. Injection chỉ qua `ITargetAdapter`.
+6. Một target lỗi/đóng không crash hệ thống (`IsWindow` trước mỗi send).
+7. Emergency Stop thoát nhanh, không qua queue.
+8. Không hard-code một phương thức injection duy nhất.
+9. Không bypass anti-cheat.
+10. Mỗi Slice có test/acceptance.
+
+## Yêu cầu
+
+- Windows 10/11 x64
+- .NET SDK 8+ (đã verify với SDK 9.0.318; VS Code 1.137.0)
+
+## Chạy
+
+```powershell
+dotnet build InputSync.sln
+dotnet run --project src/InputSync.UI
+dotnet test tests/InputSync.Tests
+```
+
+## Test với Notepad (Slice 6 acceptance)
+
+1. Mở 2 cửa sổ Notepad.
+2. Chạy app → Refresh → chọn 1 Source, tick 1+ Target.
+3. Coordinate = Relative, Keyboard/Mouse = ON.
+4. START SYNC → gõ/chuột trên Source → Target nhận theo.
+5. F8 Start/Pause, F9 Stop, F10 Emergency Stop.
+6. Đóng 1 Target → target đó `WINDOW LOST`, các target khác vẫn chạy.
+7. STOP bất kỳ lúc nào → không kẹt phím (ReleaseAll).
+
+## Config (Slice 9)
+
+JSON, HWND chỉ là runtime handle (không persist):
+
+```json
+{
+  "source": { "process_name": "game.exe", "window_title": "Game A" },
+  "targets": [],
+  "keyboard": true,
+  "mouse": true,
+  "coordinate_mode": "relative",
+  "hotkeys": { "toggle": "F8", "stop": "F9", "emergency_stop": "F10" }
+}
+```
+
+## Slices
+
+Slice 1 Window Discovery · 2 Keyboard Capture · 3 Mouse Capture ·
+4 Normalization · 5 Dispatcher · 6 Win32 Adapter · 7 State Safety ·
+8 UI · 9 Persistence · 10 Reliability (12 tests pass).
