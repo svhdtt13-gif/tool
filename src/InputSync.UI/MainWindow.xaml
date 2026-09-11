@@ -239,10 +239,12 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Text="DEBUG EVENT LOG · MEMORY ONLY · MAX 200" Style="{StaticResource SectionLabelStyle}" />
-                        <ListBox Grid.Row="1" ItemsSource="{Binding EventLog}" FontFamily="Cascadia Mono, Consolas" FontSize="12" BorderThickness="0" Background="Transparent" />
+                        <TextBlock Grid.Row="1" Text="{Binding Metrics.MouseTrace}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" AutomationProperties.Name="Mouse trace" />
+                        <ListBox Grid.Row="2" ItemsSource="{Binding EventLog}" FontFamily="Cascadia Mono, Consolas" FontSize="12" BorderThickness="0" Background="Transparent" />
                     </Grid>
                 </Border>
             </Grid>

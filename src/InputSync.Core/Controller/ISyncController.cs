@@ -96,6 +96,7 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     private int _lostTargets;
     private double _averageLatencyMs;
     private double _maxLatencyMs;
+    private string _mouseTrace = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -112,6 +113,8 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     public double AverageLatencyMs { get => _averageLatencyMs; set => Set(ref _averageLatencyMs, value, nameof(AverageLatencyMs)); }
 
     public double MaxLatencyMs { get => _maxLatencyMs; set => Set(ref _maxLatencyMs, value, nameof(MaxLatencyMs)); }
+
+    public string MouseTrace { get => _mouseTrace; set => Set(ref _mouseTrace, value, nameof(MouseTrace)); }
 
     private void Set<T>(ref T field, T value, string propertyName)
     {

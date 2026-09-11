@@ -55,6 +55,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private long _eventsReceived;
     private long _eventsDropped;
     private long _lastUiSyncMs;
+    private string? _lastMouseTrace;
 
     public RealSyncController(
         bool debugEnabled = false,
@@ -68,7 +69,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
             () => _source?.Hwnd ?? nint.Zero,
             () => _coordinateMode,
             _endpointResolver,
-            _latency);
+            _latency,
+            trace: line => Volatile.Write(ref _lastMouseTrace, line));
         _engine = new SyncController(
             _targetAdapter,
             new InputStateTracker(),
@@ -600,7 +602,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _ => MouseAction.ButtonUp,
         };
         return new MouseEventData(
-            nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id);
+            nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id,
+            evt.RawX, evt.RawY);
     }
 
     private void FlushPendingMove()
@@ -835,6 +838,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.EventsDropped = dropped;
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
+            string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
+            if (!string.IsNullOrEmpty(mouseTrace))
+            {
+                Metrics.MouseTrace = mouseTrace;
+            }
 
             foreach (SyncTarget target in Targets)
             {
