@@ -35,6 +35,33 @@ public sealed class TextDifferTests
     }
 
     [Fact]
+    public void TelexDoubleD_ReplacesTail()
+    {
+        TextEdit edit = TextDiffer.Compute("dd", "đ");
+
+        Assert.Equal(2, edit.Backspaces);
+        Assert.Equal("đ", edit.Inserted);
+    }
+
+    [Fact]
+    public void DeleteMiddle_RemovesMiddle()
+    {
+        TextEdit edit = TextDiffer.Compute("abcd", "acd");
+
+        Assert.Equal(1, edit.Backspaces);
+        Assert.Equal(string.Empty, edit.Inserted);
+    }
+
+    [Fact]
+    public void ReplaceMiddle_SwapsMiddle()
+    {
+        TextEdit edit = TextDiffer.Compute("abc", "aXc");
+
+        Assert.Equal(1, edit.Backspaces);
+        Assert.Equal("X", edit.Inserted);
+    }
+
+    [Fact]
     public void Backspace_DeletesOne()
     {
         TextEdit edit = TextDiffer.Compute("abc", "ab");
