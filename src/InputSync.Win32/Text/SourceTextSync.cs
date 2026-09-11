@@ -5,14 +5,15 @@ namespace InputSync.Win32;
 /// <summary>
 /// Mirrors observed source text to targets: snapshots readable source text,
 /// diffs each change and emits it as plain characters. First read only
-/// establishes the baseline and emits nothing. All I/O goes through injected
-/// delegates, so the diff logic is fully unit-testable.
+/// establishes the baseline and emits nothing. Thread-safe: pump, debounce
+/// and monitor threads share one instance.
 /// </summary>
 public sealed class SourceTextSync
 {
     private readonly Func<string?> _readText;
     private readonly Action<string> _emitText;
     private readonly int _maxLength;
+    private readonly object _gate = new();
     private string? _snapshot;
 
     public SourceTextSync(Func<string?> readText, Action<string> emitText, int maxLength = 30000)
@@ -31,14 +32,19 @@ public sealed class SourceTextSync
             return string.Empty;
         }
 
-        if (_snapshot is null)
+        TextEdit edit;
+        lock (_gate)
         {
+            if (_snapshot is null)
+            {
+                _snapshot = Truncate(current);
+                return string.Empty;
+            }
+
+            edit = TextDiffer.Compute(_snapshot, current, _maxLength);
             _snapshot = Truncate(current);
-            return string.Empty;
         }
 
-        TextEdit edit = TextDiffer.Compute(_snapshot, current, _maxLength);
-        _snapshot = Truncate(current);
         if (edit.IsEmpty)
         {
             return string.Empty;
@@ -63,7 +69,62 @@ public sealed class SourceTextSync
         string? current = Read();
         if (current is not null)
         {
-            _snapshot = Truncate(current);
+            lock (_gate)
+            {
+                _snapshot = Truncate(current);
+            }
+        }
+    }
+
+    public bool AdoptUntilChanged(int timeoutMs = 300, int pollMs = 20)
+    {
+        if (Snapshot is null)
+        {
+            Adopt();
+            return false;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            string? current = Read();
+            if (current is null)
+            {
+                return false;
+            }
+
+            lock (_gate)
+            {
+                if (_snapshot is not null
+                    && !string.Equals(current, _snapshot, StringComparison.Ordinal))
+                {
+                    _snapshot = Truncate(current);
+                    return true;
+                }
+            }
+
+            System.Threading.Thread.Sleep(pollMs);
+        }
+
+        return false;
+    }
+
+    public void Reset()
+    {
+        lock (_gate)
+        {
+            _snapshot = null;
+        }
+    }
+
+    private string? Snapshot
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _snapshot;
+            }
         }
     }
 
@@ -78,8 +139,6 @@ public sealed class SourceTextSync
             return null;
         }
     }
-
-    public void Reset() => _snapshot = null;
 
     private string Truncate(string text) =>
         text.Length > _maxLength ? text[^_maxLength..] : text;
