@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Input;
 using InputSync.Core.Controller;
 using InputSync.Core.Models;
+using InputSync.Win32;
 
 namespace InputSync.UI;
 
@@ -17,6 +19,7 @@ public partial class MainWindow : Window
         CoordinateModes = Enum.GetValues<CoordinateMode>();
         InitializeComponent();
         DataContext = controller;
+        PreviewKeyDown += OnPreviewKeyDown;
     }
 
     public IReadOnlyList<CoordinateMode> CoordinateModes { get; }
@@ -30,6 +33,25 @@ public partial class MainWindow : Window
     private void Stop_Click(object sender, RoutedEventArgs e) => _controller.Stop();
 
     private void EmergencyStop_Click(object sender, RoutedEventArgs e) => _controller.EmergencyStop();
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F8 && _controller is RealSyncController real)
+        {
+            real.TogglePauseResume();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F9)
+        {
+            _controller.Stop();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F10)
+        {
+            _controller.EmergencyStop();
+            e.Handled = true;
+        }
+    }
 }
 
 public sealed class OnOffConverter : IValueConverter

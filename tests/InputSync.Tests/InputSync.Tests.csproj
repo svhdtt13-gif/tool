@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\InputSync.Core\InputSync.Core.csproj" />
+    <ProjectReference Include="..\..\src\InputSync.Win32\InputSync.Win32.csproj" />
   </ItemGroup>
 
 </Project>
