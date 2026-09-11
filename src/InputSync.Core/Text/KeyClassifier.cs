@@ -17,4 +17,13 @@ public static class KeyClassifier
         >= 0x70 and <= 0x87 => true,
         _ => false,
     };
+
+    /// <summary>
+    /// Decides whether a key-down/up pair is forwarded as control input.
+    /// Alt without Ctrl (menu access) is also forwarded; the target produces
+    /// WM_SYSCHAR rather than text, so no duplicate emission is possible.
+    /// Ctrl+Alt (AltGr) stays on the text-mirror path.
+    /// </summary>
+    public static bool ShouldForwardAsControl(uint virtualKey, bool altHeld, bool ctrlHeld) =>
+        IsTextNeutralKey(virtualKey) || (altHeld && !ctrlHeld);
 }

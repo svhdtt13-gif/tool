@@ -482,7 +482,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 bool queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    if (!KeyClassifier.IsTextNeutralKey(evt.Vk))
+                    _textSync?.Sync();
+                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, IsAsyncDown(VK_MENU), IsAsyncDown(VK_CONTROL)))
                     {
                         HandleTextKey(evt);
                         continue;
@@ -825,6 +826,23 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private const uint WM_GETTEXT = 0x000D;
     private const uint SMTO_ABORTIFHUNG = 0x0002;
+    private const int VK_MENU = 0x12;
+    private const int VK_CONTROL = 0x11;
+
+    private static bool IsAsyncDown(int virtualKey)
+    {
+        try
+        {
+            return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern nint SendMessageTimeout(
