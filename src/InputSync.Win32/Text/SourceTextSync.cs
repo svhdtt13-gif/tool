@@ -68,7 +68,7 @@ public sealed class SourceTextSync
 
     private string EmitFor(string current)
     {
-        TextEdit edit;
+        string payload;
         lock (_gate)
         {
             if (_snapshot is null)
@@ -77,24 +77,23 @@ public sealed class SourceTextSync
                 return string.Empty;
             }
 
-            edit = TextDiffer.Compute(_snapshot, current, _maxLength);
+            TextEdit edit = TextDiffer.Compute(_snapshot, current, _maxLength);
             _snapshot = current;
-        }
+            if (edit.IsEmpty)
+            {
+                return string.Empty;
+            }
 
-        if (edit.IsEmpty)
-        {
-            return string.Empty;
-        }
-
-        string payload = (edit.Backspaces > 0 ? new string('\b', edit.Backspaces) : string.Empty)
-            + edit.Inserted;
-        try
-        {
-            _emitText(payload);
-        }
-        catch
-        {
-            return string.Empty;
+            payload = (edit.Backspaces > 0 ? new string('\b', edit.Backspaces) : string.Empty)
+                + edit.Inserted;
+            try
+            {
+                _emitText(payload);
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         return payload;
