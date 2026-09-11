@@ -12,7 +12,11 @@ public partial class App : Application
 #else
         const bool debugEnabled = false;
 #endif
-        MainWindow = new MainWindow(new SampleSyncController(debugEnabled));
+        var controller = new Win32.RealSyncController(
+            debugEnabled,
+            action => Dispatcher.BeginInvoke(action));
+        MainWindow = new MainWindow(controller);
+        Exit += (_, _) => (MainWindow.DataContext as IDisposable)?.Dispose();
         MainWindow.Show();
     }
 }
