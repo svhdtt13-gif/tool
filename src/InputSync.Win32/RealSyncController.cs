@@ -525,7 +525,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             ? KeyboardAction.Up
             : KeyboardAction.Down;
         return new KeyboardEventData(
-            nint.Zero, evt.Vk, evt.ScanCode, action, evt.Extended, evt.Text ?? string.Empty, evt.Id);
+            nint.Zero, evt.Vk, evt.ScanCode, action, evt.Extended, string.Empty, evt.Id);
     }
 
     private static MouseEventData ToMouse(NormalizedInputEvent evt)
