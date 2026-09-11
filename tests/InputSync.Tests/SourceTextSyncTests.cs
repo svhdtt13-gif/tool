@@ -49,4 +49,32 @@ public sealed class SourceTextSyncTests
         Assert.Equal(string.Empty, sync.Sync());
         Assert.Empty(emitted);
     }
+
+    [Fact]
+    public void AdoptUntilChanged_AdoptsPasteSilently()
+    {
+        string current = "ab";
+        var emitted = new List<string>();
+        var sync = new SourceTextSync(() => current, emitted.Add);
+        sync.Sync();
+
+        current = "abPASTED";
+        Assert.True(sync.AdoptUntilChanged(500));
+        Assert.Empty(emitted);
+
+        current = "abPASTED!";
+        Assert.Equal("!", sync.Sync());
+        Assert.Equal(new[] { "!" }, emitted);
+    }
+
+    [Fact]
+    public void AdoptUntilChanged_TimeoutWhenStatic()
+    {
+        var emitted = new List<string>();
+        var sync = new SourceTextSync(() => "steady", emitted.Add);
+        sync.Sync();
+
+        Assert.False(sync.AdoptUntilChanged(60, 20));
+        Assert.Empty(emitted);
+    }
 }

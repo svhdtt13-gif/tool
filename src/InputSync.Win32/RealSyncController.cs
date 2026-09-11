@@ -484,6 +484,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 {
                     bool altHeld = IsAsyncDown(VK_MENU);
                     bool ctrlHeld = IsAsyncDown(VK_CONTROL);
+                    if (ctrlHeld && !altHeld && ClipboardKeys.IsMirroredCombo(evt.Vk))
+                    {
+                        HandleClipboardCombo(evt);
+                        continue;
+                    }
+
                     if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld))
                     {
                         HandleTextKey(evt);
@@ -555,6 +561,29 @@ public sealed class RealSyncController : ISyncController, IDisposable
         {
             _textHeld.Remove(evt.Vk);
         }
+    }
+
+    private void HandleClipboardCombo(NormalizedInputEvent evt)
+    {
+        bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
+        if (evt.Vk == ClipboardKeys.V && isDown)
+        {
+            if (ClipboardReader.TryReadUnicodeText(out string? text) && !string.IsNullOrEmpty(text))
+            {
+                EmitTextToTargets(text);
+                _textSync?.AdoptUntilChanged();
+            }
+            else
+            {
+                KeyboardEventData down = ToKeyboard(evt);
+                _engine.TryQueueKeyboard(down);
+                _engine.TryQueueKeyboard(down with { Action = KeyboardAction.Up });
+            }
+
+            return;
+        }
+
+        HandleTextKey(evt);
     }
 
     private string? ReadSourceText()
