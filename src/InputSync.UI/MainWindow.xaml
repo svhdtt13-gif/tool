@@ -151,7 +151,7 @@
                                         <StackPanel Grid.Column="1" Margin="8,0" VerticalAlignment="Center">
                                             <TextBlock Text="{Binding Window.Title}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
                                             <TextBlock Foreground="{StaticResource MutedInkBrush}" FontSize="12">
-                                                <Run Text="{Binding Window.ProcessName}" /><Run Text="  ·  HWND " /><Run Text="{Binding Window.Hwnd}" />
+                                                <Run Text="{Binding Window.ProcessName, Mode=OneWay}" /><Run Text="  ·  HWND " /><Run Text="{Binding Window.Hwnd, Mode=OneWay}" />
                                             </TextBlock>
                                         </StackPanel>
                                         <Border Grid.Column="2" Padding="8,4" CornerRadius="16" VerticalAlignment="Center">
