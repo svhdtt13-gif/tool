@@ -20,10 +20,11 @@ public static class KeyClassifier
 
     /// <summary>
     /// Decides whether a key-down/up pair is forwarded as control input.
-    /// Alt without Ctrl (menu access) is also forwarded; the target produces
-    /// WM_SYSCHAR rather than text, so no duplicate emission is possible.
-    /// Ctrl+Alt (AltGr) stays on the text-mirror path.
+    /// Neutral keys always forward. With Ctrl or Alt held, every key forwards
+    /// so shortcuts (Ctrl+A/C/V/X, Alt+menu) execute on targets from shared
+    /// system state; the text mirror adopts snapshots silently in that case
+    /// and emits nothing, so no duplicate emission is possible.
     /// </summary>
     public static bool ShouldForwardAsControl(uint virtualKey, bool altHeld, bool ctrlHeld) =>
-        IsTextNeutralKey(virtualKey) || (altHeld && !ctrlHeld);
+        IsTextNeutralKey(virtualKey) || altHeld || ctrlHeld;
 }

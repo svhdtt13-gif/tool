@@ -482,11 +482,21 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 bool queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    _textSync?.Sync();
-                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, IsAsyncDown(VK_MENU), IsAsyncDown(VK_CONTROL)))
+                    bool altHeld = IsAsyncDown(VK_MENU);
+                    bool ctrlHeld = IsAsyncDown(VK_CONTROL);
+                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld))
                     {
                         HandleTextKey(evt);
                         continue;
+                    }
+
+                    if (altHeld || ctrlHeld)
+                    {
+                        _textSync?.Adopt();
+                    }
+                    else
+                    {
+                        _textSync?.Sync();
                     }
 
                     queued = _engine.TryQueueKeyboard(ToKeyboard(evt));
@@ -780,7 +790,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    _textSync?.Sync();
+                    if (IsAsyncDown(VK_MENU) || IsAsyncDown(VK_CONTROL))
+                    {
+                        _textSync?.Adopt();
+                    }
+                    else
+                    {
+                        _textSync?.Sync();
+                    }
+
                     SyncUiState(force: false);
                 }
             }
