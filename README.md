@@ -63,13 +63,27 @@ dotnet test tests/InputSync.Tests
 
 ## Test với Notepad (Slice 6 acceptance)
 
-1. Mở 2 cửa sổ Notepad.
-2. Chạy app → Refresh → chọn 1 Source, tick 1+ Target.
+1. Mở 3 cửa sổ Notepad.
+2. Chạy app → Refresh → chọn 1 Source + tick 2 Targets.
 3. Coordinate = Relative, Keyboard/Mouse = ON.
-4. START SYNC → gõ/chuột trên Source → Target nhận theo.
-5. F8 Start/Pause, F9 Stop, F10 Emergency Stop.
-6. Đóng 1 Target → target đó `WINDOW LOST`, các target khác vẫn chạy.
-7. STOP bất kỳ lúc nào → không kẹt phím (ReleaseAll).
+4. START SYNC → gõ `ABC123` trên Source.
+5. Kỳ vọng: cả 3 cửa sổ đều hiện `ABC123` đúng 1 lần; Events received/dispatched > 0.
+6. F8 Start/Pause, F9 Stop, F10 Emergency Stop.
+7. Đóng 1 Target → target đó `WINDOW LOST`, các target khác vẫn chạy.
+8. STOP bất kỳ lúc nào → không kẹt phím (ReleaseAll).
+
+## Thiết kế đường input (PR #7)
+
+Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 2 lần:
+
+- Phím điều khiển (Shift/Ctrl/Alt, arrows, F-keys, Esc...) → forward `WM_KEYDOWN`/`WM_KEYUP`.
+- Mọi phím còn lại → KHÔNG forward key; text được đọc từ nội dung
+  Source quan sát được (diff) rồi gửi `WM_CHAR` tới từng target.
+  Nhờ đó Unikey/Telex/VNI, IME, paste đều đúng nguyên văn, kể cả tiếng Việt.
+- Latency đo bằng một clock duy nhất (`Stopwatch.GetTimestamp()`).
+
+Giới hạn known: app/game không đọc được text (ô chat game...) thì phím chữ
+trong đó không mirror được; phím điều khiển vẫn forward bình thường.
 
 ## Config (Slice 9)
 
