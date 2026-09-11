@@ -101,6 +101,41 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         }
     }
 
+    public bool SendText(nint targetHwnd, string text)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(text) || !IsWindow(targetHwnd))
+            {
+                return false;
+            }
+
+            nint endpoint = _resolver.Resolve(targetHwnd);
+            nint charLParam = unchecked((nint)1);
+            bool posted = true;
+            foreach (char ch in text)
+            {
+                posted = PostMessage(endpoint, WM_CHAR, (nuint)ch, charLParam) && posted;
+            }
+
+            if (posted)
+            {
+                Interlocked.Increment(ref _eventsDispatched);
+            }
+            else
+            {
+                Interlocked.Increment(ref _sendFailures);
+            }
+
+            return posted;
+        }
+        catch
+        {
+            Interlocked.Increment(ref _sendFailures);
+            return false;
+        }
+    }
+
     private bool TryTranslate(MouseEventData eventData, nint endpoint, out int x, out int y)
     {
         x = 0;

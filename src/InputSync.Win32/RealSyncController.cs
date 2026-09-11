@@ -8,6 +8,7 @@ using InputSync.Core.Dispatch;
 using InputSync.Core.Models;
 using InputSync.Core.Normalization;
 using InputSync.Core.Safety;
+using InputSync.Core.Text;
 
 namespace InputSync.Win32;
 
@@ -32,9 +33,13 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private readonly object _lifecycleGate = new();
     private readonly EventNormalizer _normalizer = new();
 
+    private readonly TargetEndpointResolver _endpointResolver = new();
+    private readonly HashSet<uint> _textHeld = [];
+    private SourceTextSync? _textSync;
     private InputCapture? _capture;
     private CancellationTokenSource? _pumpCancellation;
     private Task? _pumpTask;
+    private Task? _monitorTask;
     private volatile SyncState _state = SyncState.IDLE;
     private volatile bool _disposed;
     private WindowInfo? _source;
@@ -57,7 +62,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         _targetAdapter = new SyncTargetAdapter(
             () => _source?.Hwnd ?? nint.Zero,
             () => _coordinateMode,
-            new TargetEndpointResolver(),
+            _endpointResolver,
             _latency);
         _engine = new SyncController(
             _targetAdapter,
@@ -272,6 +277,9 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Interlocked.Exchange(ref _eventsReceived, 0);
             Interlocked.Exchange(ref _eventsDropped, 0);
             _latency.Reset();
+            _textHeld.Clear();
+            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets);
+            _textSync.Sync();
 
             if (!_engine.Start())
             {
@@ -284,6 +292,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpCancellation = new CancellationTokenSource();
             CancellationToken token = _pumpCancellation.Token;
             _pumpTask = Task.Run(() => PumpLoopAsync(token), CancellationToken.None);
+            _monitorTask = Task.Run(() => MonitorLoopAsync(token), CancellationToken.None);
 
             State = SyncState.RUNNING;
             StatusText = "RUNNING";
@@ -340,6 +349,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     public void Stop()
     {
         Task? pump;
+        Task? monitor;
         lock (_lifecycleGate)
         {
             if (_disposed)
@@ -349,19 +359,17 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             _pumpCancellation?.Cancel();
             pump = _pumpTask;
+            monitor = _monitorTask;
             _pumpTask = null;
+            _monitorTask = null;
         }
 
-        try
-        {
-            pump?.GetAwaiter().GetResult();
-        }
-        catch (OperationCanceledException)
-        {
-        }
+        JoinWorker(pump);
+        JoinWorker(monitor);
 
         lock (_lifecycleGate)
         {
+            _textHeld.Clear();
             _capture?.Stop();
             _engine.Stop();
             State = SyncState.IDLE;
@@ -382,6 +390,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             _pumpCancellation?.Cancel();
             _pumpTask = null;
+            _monitorTask = null;
         }
 
         try
@@ -470,9 +479,22 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 _latency.RecordEnqueued(evt.Id, evt.Timestamp);
                 Interlocked.Increment(ref _eventsReceived);
 
-                bool queued = evt.Type == InputEventType.Keyboard
-                    ? _engine.TryQueueKeyboard(ToKeyboard(evt))
-                    : _engine.TryQueueMouse(ToMouse(evt));
+                bool queued;
+                if (evt.Type == InputEventType.Keyboard)
+                {
+                    if (!KeyClassifier.IsTextNeutralKey(evt.Vk))
+                    {
+                        HandleTextKey(evt);
+                        continue;
+                    }
+
+                    queued = _engine.TryQueueKeyboard(ToKeyboard(evt));
+                }
+                else
+                {
+                    queued = _engine.TryQueueMouse(ToMouse(evt));
+                }
+
                 if (!queued)
                 {
                     Interlocked.Increment(ref _eventsDropped);
@@ -508,6 +530,94 @@ public sealed class RealSyncController : ISyncController, IDisposable
         };
         return new MouseEventData(
             nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id);
+    }
+
+    private void HandleTextKey(NormalizedInputEvent evt)
+    {
+        bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
+        if (isDown)
+        {
+            _textHeld.Add(evt.Vk);
+            _textSync?.Sync();
+        }
+        else
+        {
+            _textHeld.Remove(evt.Vk);
+        }
+    }
+
+    private string? ReadSourceText()
+    {
+        nint source = _source?.Hwnd ?? nint.Zero;
+        if (source == nint.Zero || !WindowManager.IsWindowValid(source))
+        {
+            return null;
+        }
+
+        nint endpoint;
+        try
+        {
+            endpoint = _endpointResolver.Resolve(source);
+        }
+        catch
+        {
+            return null;
+        }
+
+        const int capacity = 30001;
+        var buffer = new System.Text.StringBuilder(capacity);
+        try
+        {
+            nint result = SendMessageTimeout(
+                endpoint, WM_GETTEXT, (nuint)capacity, buffer, SMTO_ABORTIFHUNG, 100, out _);
+            return result == nint.Zero ? null : buffer.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void EmitTextToTargets(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        SyncTarget[] snapshot;
+        lock (_lifecycleGate)
+        {
+            snapshot = [.. Targets];
+        }
+
+        bool changed = false;
+        foreach (SyncTarget target in snapshot)
+        {
+            if (!target.Enabled)
+            {
+                continue;
+            }
+
+            nint hwnd = target.Window.Hwnd;
+            if (!WindowManager.IsWindowValid(hwnd))
+            {
+                _engine.RemoveTarget(hwnd);
+                target.Status = TargetStatus.WINDOW_LOST;
+                changed = true;
+                continue;
+            }
+
+            if (!_targetAdapter.SendText(hwnd, text))
+            {
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            SyncUiState(force: true);
+        }
     }
 
     private void SyncUiState(bool force)
@@ -640,16 +750,43 @@ public sealed class RealSyncController : ISyncController, IDisposable
     {
         _pumpCancellation?.Cancel();
         Task? pump = _pumpTask;
+        Task? monitor = _monitorTask;
         _pumpTask = null;
+        _monitorTask = null;
+        JoinWorker(pump);
+        JoinWorker(monitor);
+        _textHeld.Clear();
+        _capture?.Stop();
+    }
+
+    private static void JoinWorker(Task? worker)
+    {
         try
         {
-            pump?.GetAwaiter().GetResult();
+            worker?.GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
         }
+    }
 
-        _capture?.Stop();
+    private async Task MonitorLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                if (State == SyncState.RUNNING)
+                {
+                    _textSync?.Sync();
+                    SyncUiState(force: false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private void AddLog(string message)
@@ -685,4 +822,17 @@ public sealed class RealSyncController : ISyncController, IDisposable
         Marshal(() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)));
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private const uint WM_GETTEXT = 0x000D;
+    private const uint SMTO_ABORTIFHUNG = 0x0002;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern nint SendMessageTimeout(
+        nint hwnd,
+        uint message,
+        nuint wParam,
+        System.Text.StringBuilder lParam,
+        uint flags,
+        uint timeoutMilliseconds,
+        out nuint result);
 }

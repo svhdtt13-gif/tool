@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using InputSync.Core.Models;
@@ -192,7 +193,7 @@ public sealed class InputCapture : IDisposable
                 rawEvent.KeyboardData.VkCode,
                 rawEvent.KeyboardData.ScanCode,
                 rawEvent.KeyboardData.Flags,
-                rawEvent.KeyboardData.Time,
+                Stopwatch.GetTimestamp(),
                 TranslateText(action.Value, rawEvent));
     }
 
@@ -235,7 +236,7 @@ public sealed class InputCapture : IDisposable
             point.Y,
             clientRect.Right - clientRect.Left,
             clientRect.Bottom - clientRect.Top,
-            rawEvent.MouseData.Time,
+            Stopwatch.GetTimestamp(),
             mapping.Value.Button,
             wheelDelta);
     }
