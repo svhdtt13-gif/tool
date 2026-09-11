@@ -17,4 +17,14 @@ public static class KeyClassifier
         >= 0x70 and <= 0x87 => true,
         _ => false,
     };
+
+    /// <summary>
+    /// Decides whether a key-down/up pair is forwarded as control input.
+    /// Neutral keys always forward. With Ctrl or Alt held, every key forwards
+    /// so shortcuts (Ctrl+A/C/V/X, Alt+menu) execute on targets from shared
+    /// system state; the text mirror adopts snapshots silently in that case
+    /// and emits nothing, so no duplicate emission is possible.
+    /// </summary>
+    public static bool ShouldForwardAsControl(uint virtualKey, bool altHeld, bool ctrlHeld) =>
+        IsTextNeutralKey(virtualKey) || altHeld || ctrlHeld;
 }

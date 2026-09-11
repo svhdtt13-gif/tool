@@ -25,16 +25,7 @@ public sealed class SourceTextSync
 
     public string Sync()
     {
-        string? current;
-        try
-        {
-            current = _readText();
-        }
-        catch
-        {
-            return string.Empty;
-        }
-
+        string? current = Read();
         if (current is null)
         {
             return string.Empty;
@@ -65,6 +56,27 @@ public sealed class SourceTextSync
         }
 
         return payload;
+    }
+
+    public void Adopt()
+    {
+        string? current = Read();
+        if (current is not null)
+        {
+            _snapshot = Truncate(current);
+        }
+    }
+
+    private string? Read()
+    {
+        try
+        {
+            return _readText();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void Reset() => _snapshot = null;

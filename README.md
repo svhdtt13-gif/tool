@@ -82,6 +82,14 @@ Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 
   Nhờ đó Unikey/Telex/VNI, IME, paste đều đúng nguyên văn, kể cả tiếng Việt.
 - Latency đo bằng một clock duy nhất (`Stopwatch.GetTimestamp()`).
 
+Chi tiết phím bổ trợ (PR #8): modifier (Shift/Ctrl/Alt/Win), arrows,
+Home/End, F1–F12, Esc đi đường key với đúng thứ tự
+DOWN → key DOWN → key UP → modifier UP, state độc lập từng target.
+Khi giữ Ctrl/Alt, mọi phím đi đường key để shortcut (Ctrl+A/C/V/X,
+Alt+menu) chạy trên target từ clipboard/state hệ thống chung; text-mirror
+chỉ quan sát im lặng lúc đó nên không duplicate. Thả modifier ra, gõ
+thường tiếp tục mirror bình thường.
+
 Giới hạn known: app/game không đọc được text (ô chat game...) thì phím chữ
 trong đó không mirror được; phím điều khiển vẫn forward bình thường.
 

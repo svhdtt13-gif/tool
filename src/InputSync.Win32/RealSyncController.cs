@@ -482,10 +482,21 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 bool queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    if (!KeyClassifier.IsTextNeutralKey(evt.Vk))
+                    bool altHeld = IsAsyncDown(VK_MENU);
+                    bool ctrlHeld = IsAsyncDown(VK_CONTROL);
+                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld))
                     {
                         HandleTextKey(evt);
                         continue;
+                    }
+
+                    if (altHeld || ctrlHeld)
+                    {
+                        _textSync?.Adopt();
+                    }
+                    else
+                    {
+                        _textSync?.Sync();
                     }
 
                     queued = _engine.TryQueueKeyboard(ToKeyboard(evt));
@@ -514,7 +525,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             ? KeyboardAction.Up
             : KeyboardAction.Down;
         return new KeyboardEventData(
-            nint.Zero, evt.Vk, evt.ScanCode, action, evt.Extended, evt.Text ?? string.Empty, evt.Id);
+            nint.Zero, evt.Vk, evt.ScanCode, action, evt.Extended, string.Empty, evt.Id);
     }
 
     private static MouseEventData ToMouse(NormalizedInputEvent evt)
@@ -779,7 +790,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    _textSync?.Sync();
+                    if (IsAsyncDown(VK_MENU) || IsAsyncDown(VK_CONTROL))
+                    {
+                        _textSync?.Adopt();
+                    }
+                    else
+                    {
+                        _textSync?.Sync();
+                    }
+
                     SyncUiState(force: false);
                 }
             }
@@ -825,6 +844,23 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private const uint WM_GETTEXT = 0x000D;
     private const uint SMTO_ABORTIFHUNG = 0x0002;
+    private const int VK_MENU = 0x12;
+    private const int VK_CONTROL = 0x11;
+
+    private static bool IsAsyncDown(int virtualKey)
+    {
+        try
+        {
+            return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern nint SendMessageTimeout(
