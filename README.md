@@ -82,9 +82,14 @@ Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 
   Nhờ đó Unikey/Telex/VNI, IME, paste đều đúng nguyên văn, kể cả tiếng Việt.
 - Latency đo bằng một clock duy nhất (`Stopwatch.GetTimestamp()`).
 - Đồng bộ text là hậu-xử-lý debounce (~25ms trailing): sự kiện phím →
-  Windows/app xử lý xong → đọc text → diff → emit. Gõ nhanh, giữ phím
+  Windows xử lý xong → đọc text → diff → emit. Gõ nhanh, giữ phím
   repeat, Backspace/Delete giữ, Ctrl+X/Z/Y, Telex, paste đều qua một
   đường duy nhất nên không lệch nhịp, không mất repeat.
+- Text chỉ emit khi Source đã ổn định (2 lần đọc liên tiếp giống nhau);
+  gõ liên tục không dứt thì timeout vẫn emit hiện tại, không mất chữ.
+- Chuột scale theo top-level client rect Source → top-level client rect
+  Target (tỷ lệ tương đối, miễn nhiễm DPI); không dùng kích thước Edit
+  child. Keyboard vẫn post vào Edit child để nhận `WM_CHAR`.
 - Clipboard: `Ctrl+C/X` không forward (target không được ghi đè clipboard
   chung); nội dung copy được snapshot nội bộ theo clipboard sequence.
   `Ctrl+V` phát đúng snapshot đó tới từng target; không có text thì
