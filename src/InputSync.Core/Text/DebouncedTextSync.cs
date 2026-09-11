@@ -1,18 +1,24 @@
 namespace InputSync.Core.Text;
 
 /// <summary>
-/// Coalesces rapid text-sync triggers into one trailing run, so the source
-/// application has finished processing the input before we read its text.
+/// Coalesces rapid text-sync triggers into one trailing run on a single
+/// sequential worker, so the source application has finished processing
+/// the input before we read its text. No Task is spawned per keystroke.
+/// Triggers arriving while paused are remembered and run once on Resume,
+/// so pausing (e.g. around clipboard paste) never loses input.
 /// Repeats can never be lost: diffs are state-based, and Flush runs any
-/// pending sync inline with mutual exclusion against scheduled runs.
+/// pending sync inline with mutual exclusion against the worker.
 /// </summary>
 public sealed class DebouncedTextSync : IDisposable
 {
     private readonly Action _sync;
     private readonly int _delayMs;
     private readonly object _gate = new();
-    private CancellationTokenSource? _pending;
+    private readonly ManualResetEventSlim _signal = new(false);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Task _worker;
     private long _generation;
+    private bool _pending;
     private bool _paused;
     private bool _disposed;
 
@@ -21,45 +27,11 @@ public sealed class DebouncedTextSync : IDisposable
         _sync = sync ?? throw new ArgumentNullException(nameof(sync));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(delayMs);
         _delayMs = delayMs;
+        _worker = Task.Run(WorkerLoopAsync);
     }
 
     public void Trigger()
     {
-        CancellationTokenSource? previous = null;
-        CancellationToken token;
-        long generation;
-        lock (_gate)
-        {
-            if (_disposed || _paused)
-            {
-                return;
-            }
-
-            previous = _pending;
-            _pending = new CancellationTokenSource();
-            token = _pending.Token;
-            generation = ++_generation;
-        }
-
-        CancelSilently(previous);
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await Task.Delay(_delayMs, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-
-            FireIfCurrent(generation);
-        }, CancellationToken.None);
-    }
-
-    public void Flush()
-    {
-        CancellationTokenSource? previous = null;
         lock (_gate)
         {
             if (_disposed)
@@ -67,12 +39,26 @@ public sealed class DebouncedTextSync : IDisposable
                 return;
             }
 
-            previous = _pending;
-            _pending = null;
+            _pending = true;
             _generation++;
         }
 
-        CancelSilently(previous);
+        _signal.Set();
+    }
+
+    public void Flush()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _generation++;
+            _pending = false;
+        }
+
         RunSync();
     }
 
@@ -81,26 +67,27 @@ public sealed class DebouncedTextSync : IDisposable
         lock (_gate)
         {
             _paused = true;
-            CancellationTokenSource? previous = _pending;
-            _pending = null;
             _generation++;
-            CancelSilently(previous);
         }
     }
 
     public void Resume()
     {
+        bool trigger;
         lock (_gate)
         {
             _paused = false;
+            trigger = _pending;
         }
 
-        Trigger();
+        if (trigger)
+        {
+            Trigger();
+        }
     }
 
     public void Dispose()
     {
-        CancellationTokenSource? previous = null;
         lock (_gate)
         {
             if (_disposed)
@@ -109,27 +96,70 @@ public sealed class DebouncedTextSync : IDisposable
             }
 
             _disposed = true;
-            previous = _pending;
-            _pending = null;
+            _pending = false;
+            _generation++;
         }
 
-        CancelSilently(previous);
+        try
+        {
+            _lifetime.Cancel();
+        }
+        catch
+        {
+        }
+
+        _signal.Set();
+        _signal.Dispose();
+        _lifetime.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    private void FireIfCurrent(long generation)
+    private async Task WorkerLoopAsync()
     {
-        lock (_gate)
+        try
         {
-            if (_disposed || _paused || generation != _generation)
+            while (!_lifetime.Token.IsCancellationRequested)
             {
-                return;
+                _signal.Wait(_lifetime.Token);
+                _signal.Reset();
+
+                long generation;
+                lock (_gate)
+                {
+                    generation = _generation;
+                }
+
+                try
+                {
+                    await Task.Delay(_delayMs, _lifetime.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                bool run;
+                lock (_gate)
+                {
+                    run = generation == _generation && !_paused && !_disposed;
+                    if (run)
+                    {
+                        _pending = false;
+                    }
+                }
+
+                if (run)
+                {
+                    RunSync();
+                }
             }
-
-            _pending = null;
         }
-
-        RunSync();
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private void RunSync()
@@ -137,18 +167,6 @@ public sealed class DebouncedTextSync : IDisposable
         try
         {
             _sync();
-        }
-        catch
-        {
-        }
-    }
-
-    private static void CancelSilently(CancellationTokenSource? source)
-    {
-        try
-        {
-            source?.Cancel();
-            source?.Dispose();
         }
         catch
         {
