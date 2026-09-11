@@ -67,6 +67,35 @@ public sealed class SourceTextSync
         }
     }
 
+    public bool AdoptUntilChanged(int timeoutMs = 300, int pollMs = 20)
+    {
+        if (_snapshot is null)
+        {
+            Adopt();
+            return false;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            string? current = Read();
+            if (current is null)
+            {
+                return false;
+            }
+
+            if (!string.Equals(current, _snapshot, StringComparison.Ordinal))
+            {
+                _snapshot = Truncate(current);
+                return true;
+            }
+
+            System.Threading.Thread.Sleep(pollMs);
+        }
+
+        return false;
+    }
+
     private string? Read()
     {
         try
