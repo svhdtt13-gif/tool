@@ -35,6 +35,10 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private readonly TargetEndpointResolver _endpointResolver = new();
     private readonly HashSet<uint> _textHeld = [];
+    private readonly object _clipLock = new();
+    private DebouncedTextSync? _debouncer;
+    private string? _clipboardText;
+    private int _clipboardSeq;
     private SourceTextSync? _textSync;
     private InputCapture? _capture;
     private CancellationTokenSource? _pumpCancellation;
@@ -278,8 +282,16 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Interlocked.Exchange(ref _eventsDropped, 0);
             _latency.Reset();
             _textHeld.Clear();
+            lock (_clipLock)
+            {
+                _clipboardText = null;
+                _clipboardSeq = 0;
+            }
+
             _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets);
             _textSync.Sync();
+            _debouncer?.Dispose();
+            _debouncer = new DebouncedTextSync(() => _textSync.Sync());
 
             if (!_engine.Start())
             {
@@ -370,6 +382,14 @@ public sealed class RealSyncController : ISyncController, IDisposable
         lock (_lifecycleGate)
         {
             _textHeld.Clear();
+            try
+            {
+                _debouncer?.Flush();
+            }
+            catch
+            {
+            }
+
             _capture?.Stop();
             _engine.Stop();
             State = SyncState.IDLE;
@@ -391,6 +411,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpCancellation?.Cancel();
             _pumpTask = null;
             _monitorTask = null;
+            try
+            {
+                _debouncer?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _debouncer = null;
         }
 
         try
@@ -423,6 +452,16 @@ public sealed class RealSyncController : ISyncController, IDisposable
         catch
         {
         }
+
+        try
+        {
+            _debouncer?.Dispose();
+        }
+        catch
+        {
+        }
+
+        _debouncer = null;
 
         try
         {
@@ -484,21 +523,20 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 {
                     bool altHeld = IsAsyncDown(VK_MENU);
                     bool ctrlHeld = IsAsyncDown(VK_CONTROL);
-                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld))
+                    bool shiftHeld = IsAsyncDown(VK_SHIFT);
+                    if (ctrlHeld && !altHeld && (ClipboardKeys.IsMirroredCombo(evt.Vk) || ClipboardKeys.IsCopyKey(evt.Vk)))
+                    {
+                        HandleClipboardCombo(evt, cancellationToken);
+                        continue;
+                    }
+
+                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld, shiftHeld))
                     {
                         HandleTextKey(evt);
                         continue;
                     }
 
-                    if (altHeld || ctrlHeld)
-                    {
-                        _textSync?.Adopt();
-                    }
-                    else
-                    {
-                        _textSync?.Sync();
-                    }
-
+                    _debouncer?.Trigger();
                     queued = _engine.TryQueueKeyboard(ToKeyboard(evt));
                 }
                 else
@@ -549,12 +587,105 @@ public sealed class RealSyncController : ISyncController, IDisposable
         if (isDown)
         {
             _textHeld.Add(evt.Vk);
-            _textSync?.Sync();
+            _debouncer?.Trigger();
         }
         else
         {
             _textHeld.Remove(evt.Vk);
         }
+    }
+
+    private void HandleClipboardCombo(NormalizedInputEvent evt, CancellationToken cancellationToken)
+    {
+        bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
+        if (evt.Vk == ClipboardKeys.V && isDown)
+        {
+            PasteFromClipboardSnapshot(evt);
+            return;
+        }
+
+        if (evt.Vk == ClipboardKeys.C && isDown)
+        {
+            SnapshotClipboardAsync(cancellationToken);
+            return;
+        }
+
+        if (evt.Vk == ClipboardKeys.X && isDown)
+        {
+            SnapshotClipboardAsync(cancellationToken);
+        }
+
+        HandleTextKey(evt);
+    }
+
+    private void SnapshotClipboardAsync(CancellationToken cancellationToken)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                int before = ClipboardReader.GetSequenceNumber();
+                for (int i = 0; i < 20; i++)
+                {
+                    await Task.Delay(15, cancellationToken).ConfigureAwait(false);
+                    int now = ClipboardReader.GetSequenceNumber();
+                    if (now != 0 && now != before)
+                    {
+                        if (ClipboardReader.TryReadUnicodeText(out string? text)
+                            && !string.IsNullOrEmpty(text))
+                        {
+                            lock (_clipLock)
+                            {
+                                _clipboardText = text;
+                                _clipboardSeq = now;
+                            }
+                        }
+
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private void PasteFromClipboardSnapshot(NormalizedInputEvent evt)
+    {
+        string? paste = null;
+        lock (_clipLock)
+        {
+            if (_clipboardText is not null && ClipboardReader.GetSequenceNumber() == _clipboardSeq)
+            {
+                paste = _clipboardText;
+            }
+        }
+
+        paste ??= ClipboardReader.TryReadUnicodeText(out string? live) ? live : null;
+        if (!string.IsNullOrEmpty(paste))
+        {
+            _debouncer?.Pause();
+            try
+            {
+                _debouncer?.Flush();
+                EmitTextToTargets(paste);
+                _textSync?.AdoptUntilChanged();
+            }
+            finally
+            {
+                _debouncer?.Resume();
+            }
+
+            return;
+        }
+
+        KeyboardEventData down = ToKeyboard(evt);
+        _engine.TryQueueKeyboard(down);
+        _engine.TryQueueKeyboard(down with { Action = KeyboardAction.Up });
     }
 
     private string? ReadSourceText()
@@ -790,15 +921,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    if (IsAsyncDown(VK_MENU) || IsAsyncDown(VK_CONTROL))
-                    {
-                        _textSync?.Adopt();
-                    }
-                    else
-                    {
-                        _textSync?.Sync();
-                    }
-
+                    _debouncer?.Trigger();
                     SyncUiState(force: false);
                 }
             }
@@ -846,6 +969,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private const uint SMTO_ABORTIFHUNG = 0x0002;
     private const int VK_MENU = 0x12;
     private const int VK_CONTROL = 0x11;
+    private const int VK_SHIFT = 0x10;
 
     private static bool IsAsyncDown(int virtualKey)
     {
