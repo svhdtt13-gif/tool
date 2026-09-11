@@ -26,6 +26,15 @@ public sealed class TextDifferTests
     }
 
     [Fact]
+    public void VniComposition_ReplacesTail()
+    {
+        TextEdit edit = TextDiffer.Compute("a6", "â");
+
+        Assert.Equal(2, edit.Backspaces);
+        Assert.Equal("â", edit.Inserted);
+    }
+
+    [Fact]
     public void Backspace_DeletesOne()
     {
         TextEdit edit = TextDiffer.Compute("abc", "ab");

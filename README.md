@@ -81,10 +81,14 @@ Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 
   Source quan sát được (diff) rồi gửi `WM_CHAR` tới từng target.
   Nhờ đó Unikey/Telex/VNI, IME, paste đều đúng nguyên văn, kể cả tiếng Việt.
 - Latency đo bằng một clock duy nhất (`Stopwatch.GetTimestamp()`).
-- Đồng bộ text là hậu-xử-lý debounce (~25ms trailing): sự kiện phím →
+- Đồng bộ text là hậu-xử-lý debounce (~25ms trailing) trên 1 worker
+  tuần tự (không đẻ Task theo từng phím): sự kiện phím →
   Windows xử lý xong → đọc text → diff → emit. Gõ nhanh, giữ phím
   repeat, Backspace/Delete giữ, Ctrl+X/Z/Y, Telex, paste đều qua một
-  đường duy nhất nên không lệch nhịp, không mất repeat.
+  đường duy nhất nên không lệch nhịp, không mất repeat, không đảo delta.
+- Chuột đi đường riêng không nghẽn: MouseMove được coalescing (tối đa
+  ~8ms/event, luôn lấy vị trí mới nhất), click Down/Up và wheel không
+  bao giờ gộp và luôn flush move đang chờ trước để giữ thứ tự.
 - Text chỉ emit khi Source đã ổn định (2 lần đọc liên tiếp giống nhau);
   gõ liên tục không dứt thì timeout vẫn emit hiện tại, không mất chữ.
 - Chuột scale theo top-level client rect Source → top-level client rect
