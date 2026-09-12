@@ -96,6 +96,18 @@ public sealed class SourceTextSyncTests
     }
 
     [Fact]
+    public void Trace_SilentWhenNoDelta()
+    {
+        var traces = new List<string>();
+        var sync = new SourceTextSync(() => "steady", _ => { }, trace: traces.Add);
+        sync.Sync();
+        sync.Sync();
+        sync.Sync();
+
+        Assert.Empty(traces);
+    }
+
+    [Fact]
     public void SyncStable_WaitsForSettledText_BeforeEmitting()
     {
         var reads = new Queue<string>(new[] { "", "a", "ab", "ab", "ab" });

@@ -92,6 +92,7 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     private long _eventsReceived;
     private long _eventsDispatched;
     private long _eventsDropped;
+    private long _filteredEvents;
     private int _activeTargets;
     private int _lostTargets;
     private double _averageLatencyMs;
@@ -105,6 +106,8 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     public long EventsDispatched { get => _eventsDispatched; set => Set(ref _eventsDispatched, value, nameof(EventsDispatched)); }
 
     public long EventsDropped { get => _eventsDropped; set => Set(ref _eventsDropped, value, nameof(EventsDropped)); }
+
+    public long FilteredEvents { get => _filteredEvents; set => Set(ref _filteredEvents, value, nameof(FilteredEvents)); }
 
     public int ActiveTargets { get => _activeTargets; set => Set(ref _activeTargets, value, nameof(ActiveTargets)); }
 

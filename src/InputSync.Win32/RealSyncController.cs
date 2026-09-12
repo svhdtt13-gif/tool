@@ -70,7 +70,16 @@ public sealed class RealSyncController : ISyncController, IDisposable
             () => _coordinateMode,
             _endpointResolver,
             _latency,
-            trace: line => Volatile.Write(ref _lastMouseTrace, line));
+            trace: line =>
+            {
+                Volatile.Write(ref _lastMouseTrace, line);
+                if (line.StartsWith("kbd ", StringComparison.Ordinal)
+                    || (line.StartsWith("mouse ", StringComparison.Ordinal)
+                        && !line.Contains("mouse Move/", StringComparison.Ordinal)))
+                {
+                    AddLog(line);
+                }
+            });
         _engine = new SyncController(
             _targetAdapter,
             new InputStateTracker(),
@@ -838,6 +847,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.EventsDropped = dropped;
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
+            Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
             string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
             if (!string.IsNullOrEmpty(mouseTrace))
             {
