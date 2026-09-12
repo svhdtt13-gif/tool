@@ -36,14 +36,13 @@ by a human for every verdict.
   OS-accepted, zero game effect. Do not claim Win32 support for this game.
 - **SendInput delivery: proven** on Notepad (exact text), API-accepted
   on the game with focus held.
-- **SendInput keyboard on qnyh: UNPROVEN (conflicting trials).**
-  Trial 1 (client_63): `M` down/up → Skills panel appeared (looked like
-  proof). Trial 2 (client_1, focus-first protocol): `M` down/up, API
-  True/True, focus held → NO panel, 4.93% ambient diff. Possible causes:
-  game-state dependence, or trial 1 was bot coincidence (bots open UI
-  themselves). WASD/arrows produced no movement; chat showed no text;
-  `B`/skill-`1` inconclusive. Verdict: keyboard effect on qnyh is NOT
-  established; needs a quiet client with botting paused.
+- **SendInput keyboard on qnyh: PROVEN via skill `1`.** On quiet
+  client_63 (botting stopped): `1` down/up, API True/True, focus held →
+  skill cast with damage numbers (4964/683/4693) and cast pose, verified
+  by before/after screenshots. Earlier `M` results were mixed (panel
+  once, nothing once — state-dependent or bot coincidence). WASD/arrows
+  produced no movement (bindings uncertain); chat showed no text;
+  `B` produced no panel on retest.
 - **Methodology fix applied mid-session:** focus-first protocol (focus +
   700ms settle BEFORE baseline) after discovering early diffs measured
   Z-order/focus changes instead of game responses.
