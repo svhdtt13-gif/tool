@@ -28,7 +28,9 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private readonly IKeyboardLayoutTranslator _translator;
     private readonly SyncTargetAdapter _targetAdapter;
     private readonly ForegroundSendInputAdapter _foregroundAdapter = new();
+    private readonly RotatingSendInputAdapter _rotatingAdapter;
     private readonly LatencyTracker _latency = new();
+    private int _rotationAttempts = 3;
     private SyncController _engine;
     private TargetBackend _backendMode = TargetBackend.Broadcast;
     private readonly Stopwatch _uiSyncClock = Stopwatch.StartNew();
@@ -83,6 +85,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                     AddLog(line);
                 }
             });
+        _rotatingAdapter = new RotatingSendInputAdapter(
+            hwnd => FocusHandoff.EnsureForeground(hwnd, _rotationAttempts),
+            _foregroundAdapter,
+            () => _source?.Hwnd ?? nint.Zero,
+            () => _coordinateMode,
+            trace: AddLog);
         _engine?.Dispose();
         _engine = CreateEngine();
         RefreshWindows();
@@ -90,9 +98,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private SyncController CreateEngine()
     {
-        ITargetAdapter adapter = _backendMode == TargetBackend.Foreground
-            ? _foregroundAdapter
-            : _targetAdapter;
+        ITargetAdapter adapter = _backendMode switch
+        {
+            TargetBackend.Foreground => _foregroundAdapter,
+            TargetBackend.GameRotation => _rotatingAdapter,
+            _ => _targetAdapter,
+        };
         return new SyncController(adapter, new InputStateTracker(), WindowManager.IsWindowValid);
     }
 
@@ -295,8 +306,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             _engine?.Dispose();
             _engine = CreateEngine();
-            _engine.Dispose();
-            _engine = CreateEngine();
+            _rotationAttempts = 3;
             _engine.SetSource(Source.Hwnd);
             int enabledTargets = 0;
             foreach (SyncTarget target in Targets)
@@ -312,9 +322,22 @@ public sealed class RealSyncController : ISyncController, IDisposable
                     : TargetStatus.WINDOW_LOST;
             }
 
+            if (_backendMode != TargetBackend.Broadcast && enabledTargets == 0)
+            {
+                State = SyncState.ERROR;
+                StatusText = "NO TARGETS";
+                AddLog("Game backends need at least one enabled target.");
+                return;
+            }
+
             if (_backendMode == TargetBackend.Foreground && enabledTargets > 1)
             {
                 AddLog("Foreground backend drives only the focused window; extra targets will report WINDOW LOST.");
+            }
+
+            if (_backendMode == TargetBackend.GameRotation)
+            {
+                AddLog($"Focus rotation across {enabledTargets} target(s): sequential, not simultaneous background input.");
             }
 
             try
@@ -468,6 +491,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpTask = null;
             _monitorTask = null;
             _moveCoalescer.Clear();
+            _rotationAttempts = 1;
             try
             {
                 _debouncer?.Dispose();
@@ -583,7 +607,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 bool? queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    if (_backendMode == TargetBackend.Foreground)
+                    if (_backendMode != TargetBackend.Broadcast)
                     {
                         queued = (_engine?.TryQueueKeyboard(ToKeyboard(evt)) == true);
                     }
@@ -1061,8 +1085,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    FlushPendingMove();
-                    _debouncer?.Trigger();
+                    if (_backendMode == TargetBackend.Broadcast)
+                    {
+                        FlushPendingMove();
+                        _debouncer?.Trigger();
+                    }
+
                     SyncUiState(force: false);
                 }
             }
