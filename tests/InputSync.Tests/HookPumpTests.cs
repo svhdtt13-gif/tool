@@ -28,4 +28,20 @@ public sealed class HookPumpTests
 
         Assert.Throws<ObjectDisposedException>(() => hooks.Install());
     }
+
+    [Theory]
+    [InlineData(0u, false)]
+    [InlineData(0x01u, false)]
+    [InlineData(0x10u, true)]
+    [InlineData(0x90u, true)]
+    public void IsInjectedKeyboard_ClassifiesHookFlags(uint flags, bool expected) =>
+        Assert.Equal(expected, LowLevelHooks.IsInjectedKeyboard(flags));
+
+    [Theory]
+    [InlineData(0u, false)]
+    [InlineData(0x01u, true)]
+    [InlineData(0x02u, true)]
+    [InlineData(0x03u, true)]
+    public void IsInjectedMouse_ClassifiesHookFlags(uint flags, bool expected) =>
+        Assert.Equal(expected, LowLevelHooks.IsInjectedMouse(flags));
 }

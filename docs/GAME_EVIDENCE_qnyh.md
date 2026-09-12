@@ -29,20 +29,18 @@ by a human for every verdict.
 | 8 | SendInput foreground | client_46 | M / B | True,True | No map/bag | Bindings uncertain |
 | 9 | SendInput foreground | client_46 | click ground + 4s | True | Scene changed to new area | LIKELY consumed (confounded by auto-walk, see control) |
 | 10 | SendInput foreground | client_46 | Space | True,True | Teleport loading screen appeared | Confounded (bot may teleport itself) |
-
 ## Conclusions (conservative)
 
-- **Win32 `PostMessage` keyboard: NOT consumed by qnyh.** Four runs,
-  OS-accepted, zero game effect. Do not claim Win32 support for this game.
+- **Win32 `PostMessage` keyboard: NOT consumed by qnyh.** OS-accepted,
+  zero game effect across W/chat/Esc/skill attempts. Do not claim Win32
+  support for this game.
 - **SendInput delivery: proven** on Notepad (exact text), API-accepted
   on the game with focus held.
-- **SendInput keyboard on qnyh: PROVEN via skill `1`.** On quiet
-  client_63 (botting stopped): `1` down/up, API True/True, focus held →
-  skill cast with damage numbers (4964/683/4693) and cast pose, verified
-  by before/after screenshots. Earlier `M` results were mixed (panel
-  once, nothing once — state-dependent or bot coincidence). WASD/arrows
-  produced no movement (bindings uncertain); chat showed no text;
-  `B` produced no panel on retest.
+- **SendInput skill `1` on quiet client_63: cast observed** (damage
+  numbers + pose). Rotation run on 2 clients (8 + 68): focus=ok and
+  send=True for Down+Up on BOTH targets in order, but combat noise
+  prevents attributing skill effects — mechanics proven, effect
+  inconclusive in live combat. Needs a safe-zone idle client.
 - **Methodology fix applied mid-session:** focus-first protocol (focus +
   700ms settle BEFORE baseline) after discovering early diffs measured
   Z-order/focus changes instead of game responses.

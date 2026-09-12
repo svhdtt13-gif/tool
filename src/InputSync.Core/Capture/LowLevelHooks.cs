@@ -191,7 +191,10 @@ public sealed class LowLevelHooks : IDisposable
             try
             {
                 KBDLLHOOKSTRUCT data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
+                if (!IsInjectedKeyboard(data.Flags))
+                {
+                    _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
+                }
             }
             catch (Exception)
             {
@@ -208,7 +211,10 @@ public sealed class LowLevelHooks : IDisposable
             try
             {
                 MSLLHOOKSTRUCT data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
+                if (!IsInjectedMouse(data.Flags))
+                {
+                    _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
+                }
             }
             catch (Exception)
             {
@@ -217,6 +223,14 @@ public sealed class LowLevelHooks : IDisposable
 
         return CallNextHookEx(nint.Zero, nCode, wParam, lParam);
     }
+
+    public static bool IsInjectedKeyboard(uint flags) => (flags & LLKHF_INJECTED) != 0;
+
+    public static bool IsInjectedMouse(uint flags) => (flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED)) != 0;
+
+    private const uint LLKHF_INJECTED = 0x10;
+    private const uint LLMHF_INJECTED = 0x01;
+    private const uint LLMHF_LOWER_IL_INJECTED = 0x02;
 
     private delegate nint HookProc(int nCode, nuint wParam, nint lParam);
 
