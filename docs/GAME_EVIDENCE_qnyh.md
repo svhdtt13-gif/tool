@@ -36,15 +36,24 @@ by a human for every verdict.
   OS-accepted, zero game effect. Do not claim Win32 support for this game.
 - **SendInput delivery: proven** on Notepad (exact text), API-accepted
   on the game with focus held.
-- **SendInput game effect: mouse click LIKELY, keyboard UNPROVEN.**
-  WASD/arrows produced no movement; chat/map/bag hotkeys uncertain;
-  click-to-move coincided with a scene change but bots auto-walk.
+- **SendInput game effect: mouse click LIKELY, keyboard UNproven.**
+  WASD/arrows/M/B/Esc produced no attributable effect; chat/map/bag
+  hotkeys uncertain; skill key `1` inconclusive (combat noise).
+  Click-to-move coincided with a scene change but bots auto-walk.
 - **Focus is yanked mid-hold** by an unidentified window (twice).
   Any foreground test must re-assert focus and retry key-up, or keys
   can stick down in the game.
 - **UniKeyNT interferes**: synthetic `test123` came back `t�t123`
   (Telex composition raced the stream). Test strings must avoid
   Telex triggers, or accept IME transformation.
+- **Client PIDs churn**: bot clients relog/restart (pid 24132 vanished
+  mid-session). Always resolve target by window title, never cache PIDs.
+- **Metric accounting** (app UI): received = dispatched + dropped +
+  text-consumed + moves-coalesced; filtered (focus) is counted upstream
+  in capture. E.g. 635 received / 177 dispatched / 0 dropped / 158
+  filtered is consistent with heavy typing (text path) plus focus
+  changes during setup — verify with the Text chars + Moves coalesced
+  counters rather than assuming loss.
 
 ## What is needed for a decisive verdict
 

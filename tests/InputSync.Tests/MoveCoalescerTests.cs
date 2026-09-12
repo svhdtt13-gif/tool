@@ -70,6 +70,22 @@ public sealed class MoveCoalescerTests
         Assert.False(coalescer.Flush(out _));
     }
 
+    [Fact]
+    public void Coalesced_CountsReplacedAndClearedMoves()
+    {
+        var clock = new Clock();
+        var coalescer = new MoveCoalescer(clock.Read);
+
+        Assert.Equal(0, coalescer.Coalesced);
+        Assert.True(coalescer.OfferMove(Move(0, 0), out _));
+        Assert.False(coalescer.OfferMove(Move(5, 5), out _));
+        Assert.Equal(0, coalescer.Coalesced);
+        Assert.False(coalescer.OfferMove(Move(9, 9), out _));
+        Assert.Equal(1, coalescer.Coalesced);
+        coalescer.Clear();
+        Assert.Equal(2, coalescer.Coalesced);
+    }
+
     private static long StopwatchFrequencyMs(long ms) =>
         System.Diagnostics.Stopwatch.Frequency * ms / 1000;
 }

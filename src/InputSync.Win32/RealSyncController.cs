@@ -56,6 +56,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private string _statusText = "READY";
     private long _eventsReceived;
     private long _eventsDropped;
+    private long _textCharsEmitted;
     private long _lastUiSyncMs;
     private string? _lastMouseTrace;
 
@@ -874,6 +875,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
             }
         }
 
+        Interlocked.Add(ref _textCharsEmitted, text.Length);
+
         if (changed)
         {
             SyncUiState(force: true);
@@ -907,6 +910,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
             Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
+            Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
+            Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
             string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
             if (!string.IsNullOrEmpty(mouseTrace))
             {

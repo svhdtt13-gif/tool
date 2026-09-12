@@ -15,6 +15,7 @@ public sealed class MoveCoalescer
     private readonly long _windowTicks;
     private MouseEventData? _pending;
     private long _lastSentTicks;
+    private long _coalesced;
 
     public MoveCoalescer(Func<long>? clock = null, int windowMs = 8)
     {
@@ -34,10 +35,17 @@ public sealed class MoveCoalescer
             return true;
         }
 
+        if (_pending is not null)
+        {
+            Interlocked.Increment(ref _coalesced);
+        }
+
         _pending = move;
         toSend = default;
         return false;
     }
+
+    public long Coalesced => Interlocked.Read(ref _coalesced);
 
     public bool Flush(out MouseEventData pending)
     {
@@ -53,5 +61,12 @@ public sealed class MoveCoalescer
         return false;
     }
 
-    public void Clear() => _pending = null;
+    public void Clear()
+    {
+        if (_pending is not null)
+        {
+            _pending = null;
+            Interlocked.Increment(ref _coalesced);
+        }
+    }
 }

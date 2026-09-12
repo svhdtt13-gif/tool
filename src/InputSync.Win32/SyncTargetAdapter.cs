@@ -204,7 +204,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         string range = x >= 0 && y >= 0 && x <= targetWidth && y <= targetHeight ? "range=OK" : "range=*OFF*";
         trace = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY})[phys] scr=({logicalX},{logicalY})[log@{pointDpi}] src=({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight}@dpi{targetDpi} -> ({x},{y}) {range}");
+            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY})[phys] scr=({logicalX},{logicalY})[log@{pointDpi}] src={sourceWidth}x{sourceHeight}@({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight}@dpi{targetDpi} -> ({x},{y}) {range}");
         return true;
     }
 
