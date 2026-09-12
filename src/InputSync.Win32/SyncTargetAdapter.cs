@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using InputSync.Core.Dispatch;
 using InputSync.Core.Models;
+using InputSync.Core.Normalization;
 
 namespace InputSync.Win32;
 
@@ -20,6 +21,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
     private readonly Func<CoordinateMode> _getCoordinateMode;
     private readonly TargetEndpointResolver _resolver;
     private readonly LatencyTracker _latency;
+    private readonly Action<string>? _trace;
     private readonly Win32MessageAdapter _inner = new();
     private long _eventsDispatched;
     private long _sendFailures;
@@ -28,12 +30,14 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         Func<nint> sourceHwnd,
         Func<CoordinateMode> coordinateMode,
         TargetEndpointResolver? resolver = null,
-        LatencyTracker? latency = null)
+        LatencyTracker? latency = null,
+        Action<string>? trace = null)
     {
         _getSourceHwnd = sourceHwnd ?? throw new ArgumentNullException(nameof(sourceHwnd));
         _getCoordinateMode = coordinateMode ?? throw new ArgumentNullException(nameof(coordinateMode));
         _resolver = resolver ?? new TargetEndpointResolver();
         _latency = latency ?? new LatencyTracker();
+        _trace = trace;
     }
 
     public LatencyTracker Latency => _latency;
@@ -69,6 +73,15 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 }
             }
 
+            try
+            {
+                string text = string.IsNullOrEmpty(eventData.Text) ? "-" : eventData.Text;
+                _trace?.Invoke($"kbd {eventData.Action} vk={eventData.VirtualKey} scan={eventData.ScanCode} text={text} -> 0x{endpoint:X}");
+            }
+            catch
+            {
+            }
+
             return Succeed(eventData.CorrelationId);
         }
         catch
@@ -86,13 +99,21 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 return Fail(eventData.CorrelationId);
             }
 
-            nint endpoint = _resolver.Resolve(eventData.TargetHwnd);
-            if (!TryTranslate(eventData, endpoint, out int x, out int y))
+            if (!TryTranslateTopLevel(eventData, out int x, out int y, out string trace))
             {
                 return Fail(eventData.CorrelationId);
             }
 
-            var routed = eventData with { TargetHwnd = endpoint, X = x, Y = y };
+            (nint child, int childX, int childY) = _resolver.ResolveAtPoint(eventData.TargetHwnd, x, y);
+            try
+            {
+                _trace?.Invoke($"{trace} child=0x{child:X} -> ({childX},{childY})");
+            }
+            catch
+            {
+            }
+
+            var routed = eventData with { TargetHwnd = child, X = childX, Y = childY };
             return _inner.SendMouse(routed) ? Succeed(eventData.CorrelationId) : Fail(eventData.CorrelationId);
         }
         catch
@@ -107,6 +128,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         {
             if (string.IsNullOrEmpty(text) || !IsWindow(targetHwnd))
             {
+                Interlocked.Increment(ref _sendFailures);
                 return false;
             }
 
@@ -136,8 +158,9 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         }
     }
 
-    private bool TryTranslate(MouseEventData eventData, nint endpoint, out int x, out int y)
+    private bool TryTranslateTopLevel(MouseEventData eventData, out int x, out int y, out string trace)
     {
+        trace = string.Empty;
         x = 0;
         y = 0;
 
@@ -147,30 +170,75 @@ public sealed class SyncTargetAdapter : ITargetAdapter
             return false;
         }
 
-        if (!GetClientRect(endpoint, out RECT targetRect))
+        if (!GetClientRect(eventData.TargetHwnd, out RECT targetRect))
         {
             return false;
         }
+
+        int sourceWidth = sourceRect.Right - sourceRect.Left;
+        int sourceHeight = sourceRect.Bottom - sourceRect.Top;
+        int targetWidth = targetRect.Right - targetRect.Left;
+        int targetHeight = targetRect.Bottom - targetRect.Top;
+        double normalizedX = sourceWidth > 0 ? (double)eventData.X / sourceWidth : 0;
+        double normalizedY = sourceHeight > 0 ? (double)eventData.Y / sourceHeight : 0;
 
         if (_getCoordinateMode() == CoordinateMode.Absolute)
         {
             x = eventData.X;
             y = eventData.Y;
-            return true;
         }
-
-        int sourceWidth = sourceRect.Right - sourceRect.Left;
-        int sourceHeight = sourceRect.Bottom - sourceRect.Top;
-        if (sourceWidth <= 0 || sourceHeight <= 0)
+        else
         {
-            return false;
+            if (sourceWidth <= 0 || sourceHeight <= 0)
+            {
+                return false;
+            }
+
+            x = (int)Math.Round(normalizedX * targetWidth);
+            y = (int)Math.Round(normalizedY * targetHeight);
         }
 
-        int targetWidth = targetRect.Right - targetRect.Left;
-        int targetHeight = targetRect.Bottom - targetRect.Top;
-        x = (int)Math.Round((double)eventData.X / sourceWidth * targetWidth);
-        y = (int)Math.Round((double)eventData.Y / sourceHeight * targetHeight);
+        int pointDpi = GetDpiForPoint(eventData.RawX, eventData.RawY, GetDpiForWindowSafe(source));
+        int targetDpi = GetDpiForWindowSafe(eventData.TargetHwnd);
+        int logicalX = DpiScale.ToLogical(eventData.RawX, pointDpi);
+        int logicalY = DpiScale.ToLogical(eventData.RawY, pointDpi);
+        string range = x >= 0 && y >= 0 && x <= targetWidth && y <= targetHeight ? "range=OK" : "range=*OFF*";
+        trace = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"mouse {eventData.Action}/{eventData.Button} raw=({eventData.RawX},{eventData.RawY})[phys] scr=({logicalX},{logicalY})[log@{pointDpi}] src={sourceWidth}x{sourceHeight}@({eventData.X},{eventData.Y}) norm=({normalizedX:F4},{normalizedY:F4}) tgt={targetWidth}x{targetHeight}@dpi{targetDpi} -> ({x},{y}) {range}");
         return true;
+    }
+
+    private static int GetDpiForWindowSafe(nint hwnd)
+    {
+        try
+        {
+            int dpi = (int)GetDpiForWindow(hwnd);
+            return dpi > 0 ? dpi : DpiScale.StandardDpi;
+        }
+        catch
+        {
+            return DpiScale.StandardDpi;
+        }
+    }
+
+    private static int GetDpiForPoint(int x, int y, int fallbackDpi)
+    {
+        try
+        {
+            nint monitor = MonitorFromPoint(new POINT { X = x, Y = y }, MonitorDefaultToNearest);
+            if (monitor != nint.Zero
+                && GetDpiForMonitor(monitor, MonitorDpiTypeEffective, out uint dpiX, out _) == 0
+                && dpiX > 0)
+            {
+                return (int)dpiX;
+            }
+        }
+        catch
+        {
+        }
+
+        return fallbackDpi > 0 ? fallbackDpi : DpiScale.StandardDpi;
     }
 
     private static nint BuildCharLParam(KeyboardEventData eventData)
@@ -206,6 +274,16 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    private const int MonitorDefaultToNearest = 2;
+    private const int MonitorDpiTypeEffective = 0;
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindow(nint hwnd);
@@ -217,4 +295,13 @@ public sealed class SyncTargetAdapter : ITargetAdapter
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetClientRect(nint hwnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromPoint(POINT point, int flags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
 }

@@ -81,6 +81,28 @@ Mỗi phím vật lý chỉ đi đúng 1 đường, không bao giờ phát text 
   Source quan sát được (diff) rồi gửi `WM_CHAR` tới từng target.
   Nhờ đó Unikey/Telex/VNI, IME, paste đều đúng nguyên văn, kể cả tiếng Việt.
 - Latency đo bằng một clock duy nhất (`Stopwatch.GetTimestamp()`).
+- Đồng bộ text là hậu-xử-lý debounce (~25ms trailing) trên 1 worker
+  tuần tự (không đẻ Task theo từng phím): sự kiện phím →
+  Windows xử lý xong → đọc text → diff → emit. Gõ nhanh, giữ phím
+  repeat, Backspace/Delete giữ, Ctrl+X/Z/Y, Telex, paste đều qua một
+  đường duy nhất nên không lệch nhịp, không mất repeat, không đảo delta.
+- Chuột đi đường riêng không nghẽn: MouseMove được coalescing (tối đa
+  ~8ms/event, luôn lấy vị trí mới nhất), click Down/Up và wheel không
+  bao giờ gộp và luôn flush move đang chờ trước để giữ thứ tự.
+- Text chỉ emit khi Source đã ổn định (2 lần đọc liên tiếp giống nhau);
+  gõ liên tục không dứt thì timeout vẫn emit hiện tại, không mất chữ.
+- Chuột scale theo top-level client rect Source → top-level client rect
+  Target (tỷ lệ tương đối, miễn nhiễm DPI); không dùng kích thước Edit
+  child. Keyboard vẫn post vào Edit child để nhận `WM_CHAR`. Panel DEBUG
+  hiện dòng trace live: raw[phys] → logical@dpi → client → normalized →
+  target@DPI → translated.
+- Game thật là acceptance bắt buộc (Notepad chỉ là nền): xem ma trận
+  backend và cách xác định trong [docs/INPUT_BACKENDS.md](docs/INPUT_BACKENDS.md).
+- Clipboard: `Ctrl+C/X` không forward (target không được ghi đè clipboard
+  chung); nội dung copy được snapshot nội bộ theo clipboard sequence.
+  `Ctrl+V` phát đúng snapshot đó tới từng target; không có text thì
+  forward phím V như cũ. Phím chữ với Ctrl giữ (trừ V/X/Z/Y/C) và
+  Insert/Delete với Ctrl/Shift cũng đi đường text-mirror.
 
 Chi tiết phím bổ trợ (PR #8): modifier (Shift/Ctrl/Alt/Win), arrows,
 Home/End, F1–F12, Esc đi đường key với đúng thứ tự

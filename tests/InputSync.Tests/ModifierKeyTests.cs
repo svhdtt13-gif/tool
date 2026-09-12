@@ -81,16 +81,23 @@ public sealed class ModifierKeyTests
     }
 
     [Theory]
-    [InlineData(0x41, false, false, false)]
-    [InlineData(0x41, true, false, true)]
-    [InlineData(0x41, true, true, true)]
-    [InlineData(0x41, false, true, true)]
-    [InlineData(0x10, false, false, true)]
-    [InlineData(0x25, true, true, true)]
-    [InlineData(0x70, false, false, true)]
-    public void ShouldForwardAsControl_ModifierHeld_ForwardsLetter(
-        uint vk, bool alt, bool ctrl, bool expected) =>
-        Assert.Equal(expected, KeyClassifier.ShouldForwardAsControl(vk, alt, ctrl));
+    [InlineData(0x41, false, false, false, false)]
+    [InlineData(0x41, true, false, false, true)]
+    [InlineData(0x41, true, true, false, false)]
+    [InlineData(0x41, false, true, false, true)]
+    [InlineData(0x43, false, true, false, false)]
+    [InlineData(0x56, false, true, false, false)]
+    [InlineData(0x44, false, true, false, false)]
+    [InlineData(0x10, false, false, false, true)]
+    [InlineData(0x25, true, true, false, true)]
+    [InlineData(0x70, false, false, false, true)]
+    [InlineData(0x2D, false, false, false, true)]
+    [InlineData(0x2D, false, true, false, false)]
+    [InlineData(0x2D, false, false, true, false)]
+    [InlineData(0x2E, false, false, false, false)]
+    public void ShouldForwardAsControl_RoutingMatrix(
+        uint vk, bool alt, bool ctrl, bool shift, bool expected) =>
+        Assert.Equal(expected, KeyClassifier.ShouldForwardAsControl(vk, alt, ctrl, shift));
 
     [Fact]
     public void HeldKeyRepeat_AppendsEachTime()

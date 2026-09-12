@@ -33,6 +33,7 @@ public sealed class InputCapture : IDisposable
     private CancellationTokenSource? _captureCancellation;
     private Task? _processingTask;
     private nint _sourceHwnd;
+    private long _filteredEvents;
     private bool _disposed;
 
     public InputCapture(
@@ -64,6 +65,10 @@ public sealed class InputCapture : IDisposable
     }
 
     public ChannelReader<NormalizedInputEvent> Reader => _events.Reader;
+
+    public long FilteredEvents => Interlocked.Read(ref _filteredEvents);
+
+    public bool RequireForeground { get; set; } = true;
 
     public nint SourceHwnd
     {
@@ -160,8 +165,9 @@ public sealed class InputCapture : IDisposable
         {
             nint sourceHwnd = SourceHwnd;
             nint foregroundHwnd = GetForegroundWindow();
-            if (foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
+            if (RequireForeground && foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
             {
+                Interlocked.Increment(ref _filteredEvents);
                 continue;
             }
 
@@ -220,6 +226,8 @@ public sealed class InputCapture : IDisposable
         }
 
         LowLevelHooks.POINT point = rawEvent.MouseData.Point;
+        int rawX = point.X;
+        int rawY = point.Y;
         if (!ScreenToClient(sourceHwnd, ref point))
         {
             return null;
@@ -238,7 +246,11 @@ public sealed class InputCapture : IDisposable
             clientRect.Bottom - clientRect.Top,
             Stopwatch.GetTimestamp(),
             mapping.Value.Button,
-            wheelDelta);
+            wheelDelta) with
+        {
+            RawX = rawX,
+            RawY = rawY,
+        };
     }
 
     private static MouseButton GetXButton(uint mouseData) =>

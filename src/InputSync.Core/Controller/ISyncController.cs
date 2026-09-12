@@ -18,6 +18,8 @@ public interface ISyncController : INotifyPropertyChanged
 
     bool MouseEnabled { get; set; }
 
+    TargetBackend BackendMode { get; set; }
+
     CoordinateMode CoordinateMode { get; set; }
 
     SyncState State { get; }
@@ -92,10 +94,15 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     private long _eventsReceived;
     private long _eventsDispatched;
     private long _eventsDropped;
+    private long _filteredEvents;
+    private long _textCharsEmitted;
+    private long _movesCoalesced;
+    private long _dispatchFailures;
     private int _activeTargets;
     private int _lostTargets;
     private double _averageLatencyMs;
     private double _maxLatencyMs;
+    private string _mouseTrace = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -105,6 +112,14 @@ public sealed class SyncMetrics : INotifyPropertyChanged
 
     public long EventsDropped { get => _eventsDropped; set => Set(ref _eventsDropped, value, nameof(EventsDropped)); }
 
+    public long FilteredEvents { get => _filteredEvents; set => Set(ref _filteredEvents, value, nameof(FilteredEvents)); }
+
+    public long TextCharsEmitted { get => _textCharsEmitted; set => Set(ref _textCharsEmitted, value, nameof(TextCharsEmitted)); }
+
+    public long MovesCoalesced { get => _movesCoalesced; set => Set(ref _movesCoalesced, value, nameof(MovesCoalesced)); }
+
+    public long DispatchFailures { get => _dispatchFailures; set => Set(ref _dispatchFailures, value, nameof(DispatchFailures)); }
+
     public int ActiveTargets { get => _activeTargets; set => Set(ref _activeTargets, value, nameof(ActiveTargets)); }
 
     public int LostTargets { get => _lostTargets; set => Set(ref _lostTargets, value, nameof(LostTargets)); }
@@ -112,6 +127,8 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     public double AverageLatencyMs { get => _averageLatencyMs; set => Set(ref _averageLatencyMs, value, nameof(AverageLatencyMs)); }
 
     public double MaxLatencyMs { get => _maxLatencyMs; set => Set(ref _maxLatencyMs, value, nameof(MaxLatencyMs)); }
+
+    public string MouseTrace { get => _mouseTrace; set => Set(ref _mouseTrace, value, nameof(MouseTrace)); }
 
     private void Set<T>(ref T field, T value, string propertyName)
     {

@@ -13,8 +13,12 @@ public sealed class LowLevelHooks : IDisposable
     private readonly ChannelWriter<RawHookEvent> _writer;
     private readonly HookProc _keyboardProc;
     private readonly HookProc _mouseProc;
+    private readonly ManualResetEventSlim _pumpReady = new(false);
     private nint _keyboardHook;
     private nint _mouseHook;
+    private Thread? _pumpThread;
+    private uint _pumpThreadId;
+    private Exception? _pumpError;
     private bool _disposed;
 
     public LowLevelHooks(ChannelWriter<RawHookEvent> writer)
@@ -30,11 +34,87 @@ public sealed class LowLevelHooks : IDisposable
 
         lock (_lifecycleGate)
         {
-            if (_keyboardHook != nint.Zero && _mouseHook != nint.Zero)
+            if (_pumpThread is not null)
             {
                 return;
             }
 
+            _pumpReady.Reset();
+            _pumpError = null;
+            var thread = new Thread(PumpThreadMain)
+            {
+                IsBackground = true,
+                Name = "InputSync hook pump",
+            };
+            thread.Start();
+            _pumpThread = thread;
+        }
+
+        if (!_pumpReady.Wait(TimeSpan.FromSeconds(10)))
+        {
+            Uninstall();
+            throw new TimeoutException("Global hooks did not install within 10 seconds.");
+        }
+
+        Exception? error;
+        lock (_lifecycleGate)
+        {
+            error = _pumpError;
+        }
+
+        if (error is not null)
+        {
+            Uninstall();
+            throw new Win32Exception("Global hook installation failed.", error);
+        }
+    }
+
+    public void Uninstall()
+    {
+        Thread? pump;
+        lock (_lifecycleGate)
+        {
+            pump = Interlocked.Exchange(ref _pumpThread, null);
+            nint keyboard = Interlocked.Exchange(ref _keyboardHook, nint.Zero);
+            if (keyboard != nint.Zero)
+            {
+                _ = UnhookWindowsHookEx(keyboard);
+            }
+
+            nint mouse = Interlocked.Exchange(ref _mouseHook, nint.Zero);
+            if (mouse != nint.Zero)
+            {
+                _ = UnhookWindowsHookEx(mouse);
+            }
+
+            try
+            {
+                if (_pumpThreadId != 0)
+                {
+                    PostThreadMessage(_pumpThreadId, WM_QUIT, nuint.Zero, nint.Zero);
+                }
+            }
+            catch
+            {
+            }
+
+            _pumpThreadId = 0;
+        }
+
+        try
+        {
+            pump?.Join(TimeSpan.FromSeconds(5));
+        }
+        catch
+        {
+        }
+    }
+
+    private void PumpThreadMain()
+    {
+        try
+        {
+            _pumpThreadId = GetCurrentThreadId();
             nint module = GetModuleHandle(null);
             nint keyboard = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc, module, 0);
             if (keyboard == nint.Zero)
@@ -48,26 +128,39 @@ public sealed class LowLevelHooks : IDisposable
             if (mouse == nint.Zero)
             {
                 int error = Marshal.GetLastWin32Error();
-                Uninstall();
+                nint installed = Interlocked.Exchange(ref _keyboardHook, nint.Zero);
+                if (installed != nint.Zero)
+                {
+                    _ = UnhookWindowsHookEx(installed);
+                }
+
                 throw new Win32Exception(error);
             }
 
             Interlocked.Exchange(ref _mouseHook, mouse);
         }
-    }
-
-    public void Uninstall()
-    {
-        nint keyboard = Interlocked.Exchange(ref _keyboardHook, nint.Zero);
-        if (keyboard != nint.Zero)
+        catch (Exception exception)
         {
-            _ = UnhookWindowsHookEx(keyboard);
+            lock (_lifecycleGate)
+            {
+                _pumpError = exception;
+            }
+
+            _pumpReady.Set();
+            return;
         }
 
-        nint mouse = Interlocked.Exchange(ref _mouseHook, nint.Zero);
-        if (mouse != nint.Zero)
+        _pumpReady.Set();
+
+        try
         {
-            _ = UnhookWindowsHookEx(mouse);
+            while (GetMessage(out MSG message, nint.Zero, 0, 0))
+            {
+                _ = message;
+            }
+        }
+        catch
+        {
         }
     }
 
@@ -80,6 +173,14 @@ public sealed class LowLevelHooks : IDisposable
 
         Uninstall();
         _disposed = true;
+        try
+        {
+            _pumpReady.Dispose();
+        }
+        catch
+        {
+        }
+
         GC.SuppressFinalize(this);
     }
 
@@ -159,6 +260,30 @@ public sealed class LowLevelHooks : IDisposable
 
     [DllImport("user32.dll")]
     private static extern nint CallNextHookEx(nint hook, int code, nuint wParam, nint lParam);
+
+    private const uint WM_QUIT = 0x0012;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public nint Hwnd;
+        public uint Message;
+        public nuint WParam;
+        public nint LParam;
+        public uint Time;
+        public POINT Point;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMessage(out MSG message, nint hwnd, uint filterMin, uint filterMax);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostThreadMessage(uint threadId, uint message, nuint wParam, nint lParam);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint GetModuleHandle(string? moduleName);

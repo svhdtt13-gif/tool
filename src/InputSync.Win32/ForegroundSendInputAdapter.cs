@@ -27,6 +27,7 @@ public sealed class ForegroundSendInputAdapter : ITargetAdapter
     private const int SmCyScreen = 1;
 
     private readonly ConcurrentDictionary<nint, TargetFailure> _failures = new();
+    private long _sendFailures;
 
     public ForegroundSendInputAdapter(nint targetHwnd = default)
     {
@@ -34,6 +35,8 @@ public sealed class ForegroundSendInputAdapter : ITargetAdapter
     }
 
     public nint TargetHwnd { get; }
+
+    public long SendFailures => Interlocked.Read(ref _sendFailures);
 
     public IReadOnlyDictionary<nint, TargetFailure> Failures => _failures;
 
@@ -181,6 +184,7 @@ public sealed class ForegroundSendInputAdapter : ITargetAdapter
     private bool RecordFailure(nint target, int nativeError, string reason)
     {
         _failures[target] = new TargetFailure(target, nativeError, reason, DateTimeOffset.UtcNow);
+        Interlocked.Increment(ref _sendFailures);
         return false;
     }
 

@@ -27,14 +27,21 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private readonly Action<Action> _uiInvoker;
     private readonly IKeyboardLayoutTranslator _translator;
     private readonly SyncTargetAdapter _targetAdapter;
+    private readonly ForegroundSendInputAdapter _foregroundAdapter = new();
     private readonly LatencyTracker _latency = new();
-    private readonly SyncController _engine;
+    private SyncController _engine;
+    private TargetBackend _backendMode = TargetBackend.Broadcast;
     private readonly Stopwatch _uiSyncClock = Stopwatch.StartNew();
     private readonly object _lifecycleGate = new();
     private readonly EventNormalizer _normalizer = new();
 
     private readonly TargetEndpointResolver _endpointResolver = new();
     private readonly HashSet<uint> _textHeld = [];
+    private readonly MoveCoalescer _moveCoalescer = new();
+    private readonly object _clipLock = new();
+    private DebouncedTextSync? _debouncer;
+    private string? _clipboardText;
+    private int _clipboardSeq;
     private SourceTextSync? _textSync;
     private InputCapture? _capture;
     private CancellationTokenSource? _pumpCancellation;
@@ -49,7 +56,9 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private string _statusText = "READY";
     private long _eventsReceived;
     private long _eventsDropped;
+    private long _textCharsEmitted;
     private long _lastUiSyncMs;
+    private string? _lastMouseTrace;
 
     public RealSyncController(
         bool debugEnabled = false,
@@ -63,12 +72,28 @@ public sealed class RealSyncController : ISyncController, IDisposable
             () => _source?.Hwnd ?? nint.Zero,
             () => _coordinateMode,
             _endpointResolver,
-            _latency);
-        _engine = new SyncController(
-            _targetAdapter,
-            new InputStateTracker(),
-            WindowManager.IsWindowValid);
+            _latency,
+            trace: line =>
+            {
+                Volatile.Write(ref _lastMouseTrace, line);
+                if (line.StartsWith("kbd ", StringComparison.Ordinal)
+                    || (line.StartsWith("mouse ", StringComparison.Ordinal)
+                        && !line.Contains("mouse Move/", StringComparison.Ordinal)))
+                {
+                    AddLog(line);
+                }
+            });
+        _engine?.Dispose();
+        _engine = CreateEngine();
         RefreshWindows();
+    }
+
+    private SyncController CreateEngine()
+    {
+        ITargetAdapter adapter = _backendMode == TargetBackend.Foreground
+            ? _foregroundAdapter
+            : _targetAdapter;
+        return new SyncController(adapter, new InputStateTracker(), WindowManager.IsWindowValid);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -146,6 +171,27 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             _coordinateMode = value;
             OnPropertyChanged();
+        }
+    }
+
+    public TargetBackend BackendMode
+    {
+        get => _backendMode;
+        set
+        {
+            if (_backendMode == value)
+            {
+                return;
+            }
+
+            if (State == SyncState.RUNNING || State == SyncState.PAUSED)
+            {
+                Stop();
+            }
+
+            _backendMode = value;
+            OnPropertyChanged();
+            AddLog($"Backend mode: {value}. Foreground injects real input into one window only.");
         }
     }
 
@@ -247,7 +293,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 return;
             }
 
+            _engine?.Dispose();
+            _engine = CreateEngine();
+            _engine.Dispose();
+            _engine = CreateEngine();
             _engine.SetSource(Source.Hwnd);
+            int enabledTargets = 0;
             foreach (SyncTarget target in Targets)
             {
                 if (!target.Enabled)
@@ -255,15 +306,22 @@ public sealed class RealSyncController : ISyncController, IDisposable
                     continue;
                 }
 
+                enabledTargets++;
                 target.Status = _engine.AddTarget(target.Window.Hwnd)
                     ? TargetStatus.ACTIVE
                     : TargetStatus.WINDOW_LOST;
+            }
+
+            if (_backendMode == TargetBackend.Foreground && enabledTargets > 1)
+            {
+                AddLog("Foreground backend drives only the focused window; extra targets will report WINDOW LOST.");
             }
 
             try
             {
                 _capture ??= new InputCapture(Source.Hwnd, _normalizer, _translator);
                 _capture.SourceHwnd = Source.Hwnd;
+                _capture.RequireForeground = _backendMode == TargetBackend.Broadcast;
                 _capture.Start();
             }
             catch (Exception exception) when (exception is not StackOverflowException)
@@ -278,8 +336,16 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Interlocked.Exchange(ref _eventsDropped, 0);
             _latency.Reset();
             _textHeld.Clear();
-            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets);
+            lock (_clipLock)
+            {
+                _clipboardText = null;
+                _clipboardSeq = 0;
+            }
+
+            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets, trace: AddLog);
             _textSync.Sync();
+            _debouncer?.Dispose();
+            _debouncer = new DebouncedTextSync(() => _textSync.SyncStable());
 
             if (!_engine.Start())
             {
@@ -297,7 +363,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             State = SyncState.RUNNING;
             StatusText = "RUNNING";
             SyncUiState(force: true);
-            AddLog($"Synchronization started: source HWND {Source.Hwnd}.");
+            AddLog($"Synchronization started: source HWND {Source.Hwnd}, backend {_backendMode}.");
         }
     }
 
@@ -313,6 +379,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _engine.Pause();
             State = SyncState.PAUSED;
             StatusText = "PAUSED";
+            FlushPendingMove();
             SyncUiState(force: true);
             AddLog("Synchronization paused.");
         }
@@ -370,6 +437,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
         lock (_lifecycleGate)
         {
             _textHeld.Clear();
+            _moveCoalescer.Clear();
+            try
+            {
+                _debouncer?.Flush();
+            }
+            catch
+            {
+            }
+
             _capture?.Stop();
             _engine.Stop();
             State = SyncState.IDLE;
@@ -391,6 +467,16 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpCancellation?.Cancel();
             _pumpTask = null;
             _monitorTask = null;
+            _moveCoalescer.Clear();
+            try
+            {
+                _debouncer?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _debouncer = null;
         }
 
         try
@@ -416,13 +502,28 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }
 
         _disposed = true;
-        try
+        Task? pump;
+        Task? monitor;
+        lock (_lifecycleGate)
         {
             _pumpCancellation?.Cancel();
+            pump = _pumpTask;
+            monitor = _monitorTask;
+            _pumpTask = null;
+            _monitorTask = null;
+        }
+
+        JoinWorker(pump);
+        JoinWorker(monitor);
+        try
+        {
+            _debouncer?.Dispose();
         }
         catch
         {
         }
+
+        _debouncer = null;
 
         try
         {
@@ -479,34 +580,29 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 _latency.RecordEnqueued(evt.Id, evt.Timestamp);
                 Interlocked.Increment(ref _eventsReceived);
 
-                bool queued;
+                bool? queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    bool altHeld = IsAsyncDown(VK_MENU);
-                    bool ctrlHeld = IsAsyncDown(VK_CONTROL);
-                    if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld))
+                    if (_backendMode == TargetBackend.Foreground)
                     {
-                        HandleTextKey(evt);
-                        continue;
-                    }
-
-                    if (altHeld || ctrlHeld)
-                    {
-                        _textSync?.Adopt();
+                        queued = (_engine?.TryQueueKeyboard(ToKeyboard(evt)) == true);
                     }
                     else
                     {
-                        _textSync?.Sync();
+                        queued = QueueBroadcastKeyboard(evt, cancellationToken);
                     }
-
-                    queued = _engine.TryQueueKeyboard(ToKeyboard(evt));
                 }
                 else
                 {
-                    queued = _engine.TryQueueMouse(ToMouse(evt));
+                    queued = QueueBroadcastMouse(evt);
                 }
 
-                if (!queued)
+                if (queued is null)
+                {
+                    continue;
+                }
+
+                if (!queued.Value)
                 {
                     Interlocked.Increment(ref _eventsDropped);
                 }
@@ -517,6 +613,46 @@ public sealed class RealSyncController : ISyncController, IDisposable
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+    }
+
+    private bool? QueueBroadcastKeyboard(NormalizedInputEvent evt, CancellationToken cancellationToken)
+    {
+        FlushPendingMove();
+        bool altHeld = IsAsyncDown(VK_MENU);
+        bool ctrlHeld = IsAsyncDown(VK_CONTROL);
+        bool shiftHeld = IsAsyncDown(VK_SHIFT);
+        if (ctrlHeld && !altHeld && (ClipboardKeys.IsMirroredCombo(evt.Vk) || ClipboardKeys.IsCopyKey(evt.Vk)))
+        {
+            HandleClipboardCombo(evt, cancellationToken);
+            return null;
+        }
+
+        if (!KeyClassifier.ShouldForwardAsControl(evt.Vk, altHeld, ctrlHeld, shiftHeld))
+        {
+            HandleTextKey(evt);
+            return null;
+        }
+
+        _debouncer?.Trigger();
+        return _engine?.TryQueueKeyboard(ToKeyboard(evt)) == true;
+    }
+
+    private bool QueueBroadcastMouse(NormalizedInputEvent evt)
+    {
+        MouseEventData mouse = ToMouse(evt);
+        if (mouse.Action == MouseAction.Move)
+        {
+            if (_moveCoalescer.OfferMove(mouse, out MouseEventData toSend))
+            {
+                return _engine?.TryQueueMouse(toSend) == true;
+            }
+
+            SyncUiState(force: false);
+            return true;
+        }
+
+        FlushPendingMove();
+        return _engine?.TryQueueMouse(mouse) == true;
     }
 
     private static KeyboardEventData ToKeyboard(NormalizedInputEvent evt)
@@ -540,7 +676,17 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _ => MouseAction.ButtonUp,
         };
         return new MouseEventData(
-            nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id);
+            nint.Zero, mouseAction, evt.X, evt.Y, button, MouseButtonMask.None, evt.WheelDelta, evt.Id,
+            evt.RawX, evt.RawY);
+    }
+
+    private void FlushPendingMove()
+    {
+        if (_moveCoalescer.Flush(out MouseEventData pending)
+            && !_engine.TryQueueMouse(pending))
+        {
+            Interlocked.Increment(ref _eventsDropped);
+        }
     }
 
     private void HandleTextKey(NormalizedInputEvent evt)
@@ -549,12 +695,121 @@ public sealed class RealSyncController : ISyncController, IDisposable
         if (isDown)
         {
             _textHeld.Add(evt.Vk);
-            _textSync?.Sync();
+            _debouncer?.Trigger();
         }
         else
         {
             _textHeld.Remove(evt.Vk);
         }
+    }
+
+    private void HandleClipboardCombo(NormalizedInputEvent evt, CancellationToken cancellationToken)
+    {
+        bool isDown = !string.Equals(evt.Action, nameof(InputAction.KeyUp), StringComparison.OrdinalIgnoreCase);
+        if (evt.Vk == ClipboardKeys.V && isDown)
+        {
+            PasteFromClipboardSnapshot(evt, cancellationToken);
+            return;
+        }
+
+        if (evt.Vk == ClipboardKeys.C && isDown)
+        {
+            SnapshotClipboardAsync(cancellationToken);
+            return;
+        }
+
+        if (evt.Vk == ClipboardKeys.X && isDown)
+        {
+            SnapshotClipboardAsync(cancellationToken);
+        }
+
+        HandleTextKey(evt);
+    }
+
+    private void SnapshotClipboardAsync(CancellationToken cancellationToken)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                int before = ClipboardReader.GetSequenceNumber();
+                for (int i = 0; i < 20; i++)
+                {
+                    await Task.Delay(15, cancellationToken).ConfigureAwait(false);
+                    int now = ClipboardReader.GetSequenceNumber();
+                    if (now != 0 && now != before)
+                    {
+                        if (ClipboardReader.TryReadUnicodeText(out string? text)
+                            && !string.IsNullOrEmpty(text))
+                        {
+                            lock (_clipLock)
+                            {
+                                _clipboardText = text;
+                                _clipboardSeq = now;
+                            }
+                        }
+
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+            }
+        }, CancellationToken.None);
+    }
+
+    private void PasteFromClipboardSnapshot(NormalizedInputEvent evt, CancellationToken cancellationToken)
+    {
+        string? paste = null;
+        lock (_clipLock)
+        {
+            if (_clipboardText is not null && ClipboardReader.GetSequenceNumber() == _clipboardSeq)
+            {
+                paste = _clipboardText;
+            }
+        }
+
+        paste ??= ClipboardReader.TryReadUnicodeText(out string? live) ? live : null;
+        if (!string.IsNullOrEmpty(paste))
+        {
+            _debouncer?.Pause();
+            try
+            {
+                _debouncer?.Flush();
+                EmitTextToTargets(paste);
+            }
+            finally
+            {
+                try
+                {
+                    _ = Task.Run(() =>
+                    {
+                        try
+                        {
+                            _textSync?.AdoptUntilChanged();
+                        }
+                        finally
+                        {
+                            _debouncer?.Resume();
+                        }
+                    }, cancellationToken);
+                }
+                catch
+                {
+                    _debouncer?.Resume();
+                }
+            }
+
+            return;
+        }
+
+        KeyboardEventData down = ToKeyboard(evt);
+        _engine.TryQueueKeyboard(down);
+        _engine.TryQueueKeyboard(down with { Action = KeyboardAction.Up });
     }
 
     private string? ReadSourceText()
@@ -625,6 +880,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
             }
         }
 
+        Interlocked.Add(ref _textCharsEmitted, text.Length);
+
         if (changed)
         {
             SyncUiState(force: true);
@@ -657,6 +914,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.EventsDropped = dropped;
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
+            Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
+            Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
+            Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
+            Metrics.DispatchFailures = _targetAdapter.SendFailures + _foregroundAdapter.SendFailures;
+            string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
+            if (!string.IsNullOrEmpty(mouseTrace))
+            {
+                Metrics.MouseTrace = mouseTrace;
+            }
 
             foreach (SyncTarget target in Targets)
             {
@@ -667,6 +933,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
                 if (engineTargets.TryGetValue(target.Window.Hwnd, out TargetStatus status))
                 {
+                    if (target.Status != TargetStatus.WINDOW_LOST && status == TargetStatus.WINDOW_LOST)
+                    {
+                        AddLog($"Target 0x{target.Window.Hwnd:X} lost; others continue.");
+                    }
+
                     target.Status = status;
                 }
             }
@@ -790,15 +1061,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    if (IsAsyncDown(VK_MENU) || IsAsyncDown(VK_CONTROL))
-                    {
-                        _textSync?.Adopt();
-                    }
-                    else
-                    {
-                        _textSync?.Sync();
-                    }
-
+                    FlushPendingMove();
+                    _debouncer?.Trigger();
                     SyncUiState(force: false);
                 }
             }
@@ -846,6 +1110,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private const uint SMTO_ABORTIFHUNG = 0x0002;
     private const int VK_MENU = 0x12;
     private const int VK_CONTROL = 0x11;
+    private const int VK_SHIFT = 0x10;
 
     private static bool IsAsyncDown(int virtualKey)
     {

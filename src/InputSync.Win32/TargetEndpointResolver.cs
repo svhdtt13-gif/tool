@@ -17,6 +17,16 @@ public sealed class TargetEndpointResolver
 
     private delegate bool EnumChildProc(nint hwnd, nint param);
 
+    private const int ChildSkipInvisible = 0x0001;
+    private const int ChildSkipDisabled = 0x0002;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
     public nint Resolve(nint topLevel)
     {
         if (topLevel == nint.Zero || !IsWindow(topLevel))
@@ -34,6 +44,36 @@ public sealed class TargetEndpointResolver
             nint endpoint = FindEditChild(topLevel);
             _cache[topLevel] = endpoint;
             return endpoint;
+        }
+    }
+
+    public (nint Child, int X, int Y) ResolveAtPoint(nint topLevel, int x, int y)
+    {
+        if (topLevel == nint.Zero || !IsWindow(topLevel))
+        {
+            return (topLevel, x, y);
+        }
+
+        try
+        {
+            POINT point = new() { X = x, Y = y };
+            nint child = ChildWindowFromPointEx(topLevel, point, ChildSkipInvisible | ChildSkipDisabled);
+            if (child == nint.Zero || child == topLevel || !IsWindow(child))
+            {
+                return (topLevel, x, y);
+            }
+
+            POINT mapped = new() { X = x, Y = y };
+            if (MapWindowPoints(topLevel, child, ref mapped, 1) == 0)
+            {
+                return (topLevel, x, y);
+            }
+
+            return (child, mapped.X, mapped.Y);
+        }
+        catch
+        {
+            return (topLevel, x, y);
         }
     }
 
@@ -102,4 +142,10 @@ public sealed class TargetEndpointResolver
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(nint hwnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll")]
+    private static extern nint ChildWindowFromPointEx(nint parent, POINT point, int flags);
+
+    [DllImport("user32.dll")]
+    private static extern int MapWindowPoints(nint from, nint to, ref POINT point, uint count);
 }

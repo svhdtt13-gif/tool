@@ -38,4 +38,47 @@ public sealed class LatencyDomainTests
         Assert.False(adapter.SendText(bogus, "abc"));
         Assert.False(adapter.SendText(bogus, string.Empty));
     }
+
+    [Fact]
+    public void Adapter_Failures_AreCounted()
+    {
+        var broadcast = new SyncTargetAdapter(() => nint.Zero, () => CoordinateMode.Relative);
+        var foreground = new ForegroundSendInputAdapter();
+        var bogus = new nint(0x0BADF00D);
+
+        Assert.False(broadcast.SendKeyboard(new KeyboardEventData(bogus, 0x41, 30, KeyboardAction.Down)));
+        Assert.False(broadcast.SendText(bogus, "x"));
+        Assert.True(broadcast.SendFailures >= 2);
+
+        Assert.False(foreground.SendKeyboard(new KeyboardEventData(bogus, 0x41, 30, KeyboardAction.Down)));
+        Assert.True(foreground.SendFailures >= 1);
+    }
+
+    [Fact]
+    public void MouseTrace_FiresOnlyForValidTranslate_NotOnInvalidTarget()
+    {
+        var traces = new List<string>();
+        var adapter = new SyncTargetAdapter(() => nint.Zero, () => CoordinateMode.Relative, trace: traces.Add);
+        var bogus = new nint(0x0BADF00D);
+
+        Assert.False(adapter.SendMouse(new MouseEventData(bogus, MouseAction.Move, 10, 10, RawX: 100, RawY: 200)));
+        Assert.Empty(traces);
+    }
+
+    [Fact]
+    public void RawCoordinates_DefaultZero_PreservedThroughWith()
+    {
+        var evt = new NormalizedInputEvent();
+        Assert.Equal(0, evt.RawX);
+        Assert.Equal(0, evt.RawY);
+
+        var mouse = new MouseEventData(nint.Zero, MouseAction.Move, 10, 20, RawX: 100, RawY: 200);
+        Assert.Equal(100, mouse.RawX);
+        Assert.Equal(200, mouse.RawY);
+
+        MouseEventData routed = mouse with { TargetHwnd = new nint(7) };
+        Assert.Equal(100, routed.RawX);
+        Assert.Equal(200, routed.RawY);
+        Assert.Equal(new nint(7), routed.TargetHwnd);
+    }
 }

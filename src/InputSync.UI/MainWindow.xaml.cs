@@ -17,12 +17,15 @@ public partial class MainWindow : Window
         ArgumentNullException.ThrowIfNull(controller);
         _controller = controller;
         CoordinateModes = Enum.GetValues<CoordinateMode>();
+        Backends = Enum.GetValues<TargetBackend>();
         InitializeComponent();
         DataContext = controller;
         PreviewKeyDown += OnPreviewKeyDown;
     }
 
     public IReadOnlyList<CoordinateMode> CoordinateModes { get; }
+
+    public IReadOnlyList<TargetBackend> Backends { get; }
 
     private void RefreshWindows_Click(object sender, RoutedEventArgs e) => _controller.RefreshWindows();
 

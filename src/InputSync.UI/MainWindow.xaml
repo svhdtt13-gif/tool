@@ -209,6 +209,10 @@
                             <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=CoordinateModes}"
                                       SelectedItem="{Binding CoordinateMode, Mode=TwoWay}"
                                       AutomationProperties.Name="Coordinate mode" />
+                            <TextBlock Text="BACKEND" Style="{StaticResource SectionLabelStyle}" Margin="0,8,0,0" />
+                            <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=Backends}"
+                                      SelectedItem="{Binding BackendMode, Mode=TwoWay}"
+                                      AutomationProperties.Name="Input backend" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -227,6 +231,10 @@
                             <StackPanel Margin="0,8,8,8"><TextBlock Text="Events received" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsReceived}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
                             <StackPanel Margin="8"><TextBlock Text="Events dispatched" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsDispatched}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
                             <StackPanel Margin="0,8,8,8"><TextBlock Text="Events dropped" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.EventsDropped}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="8"><TextBlock Text="Filtered (focus)" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.FilteredEvents}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Text chars" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.TextCharsEmitted}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="8"><TextBlock Text="Moves coalesced" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.MovesCoalesced}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
+                            <StackPanel Margin="0,8,8,8"><TextBlock Text="Dispatch failures" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.DispatchFailures}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
                             <StackPanel Margin="8"><TextBlock Text="Active targets" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.ActiveTargets}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
                             <StackPanel Margin="0,8,8,8"><TextBlock Text="Lost targets" Foreground="{StaticResource MutedInkBrush}" /><TextBlock Text="{Binding Metrics.LostTargets}" FontFamily="Cascadia Mono, Consolas" FontSize="20" /></StackPanel>
                             <StackPanel Margin="8"><TextBlock Text="Avg latency" Foreground="{StaticResource MutedInkBrush}" /><TextBlock FontFamily="Cascadia Mono, Consolas" FontSize="20"><Run Text="{Binding Metrics.AverageLatencyMs, StringFormat={}{0:F2}}"/><Run Text=" ms"/></TextBlock></StackPanel>
@@ -239,10 +247,12 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
                         <TextBlock Text="DEBUG EVENT LOG · MEMORY ONLY · MAX 200" Style="{StaticResource SectionLabelStyle}" />
-                        <ListBox Grid.Row="1" ItemsSource="{Binding EventLog}" FontFamily="Cascadia Mono, Consolas" FontSize="12" BorderThickness="0" Background="Transparent" />
+                        <TextBlock Grid.Row="1" Text="{Binding Metrics.MouseTrace}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Foreground="{StaticResource MutedInkBrush}" TextWrapping="Wrap" AutomationProperties.Name="Mouse trace" />
+                        <ListBox Grid.Row="2" ItemsSource="{Binding EventLog}" FontFamily="Cascadia Mono, Consolas" FontSize="12" BorderThickness="0" Background="Transparent" />
                     </Grid>
                 </Border>
             </Grid>

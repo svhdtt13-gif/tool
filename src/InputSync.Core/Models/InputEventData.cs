@@ -54,4 +54,6 @@ public readonly record struct MouseEventData(
     MouseButton Button = MouseButton.None,
     MouseButtonMask PressedButtons = MouseButtonMask.None,
     int WheelDelta = 0,
-    Guid CorrelationId = default);
+    Guid CorrelationId = default,
+    int RawX = 0,
+    int RawY = 0);
