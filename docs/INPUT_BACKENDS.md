@@ -32,6 +32,17 @@ Win32 messages do not work with every input backend.
   forward as `WM_KEYDOWN`/`WM_KEYUP` with per-target pressed-state
   tracking and release-all on Stop/Emergency.
 
+## Backend selection (UI)
+
+The app offers `Broadcast` (default) and `Foreground` in the backend
+dropdown. Broadcast posts to every enabled target in the background.
+Foreground swaps the engine adapter to `SendInput`: only the focused
+window receives anything, extra targets report `WINDOW LOST`, and the
+text mirror turns off (real keystrokes produce text natively, including
+IME). Capture-all is used in this mode because the source cannot hold
+focus while the target receives. This mode is single-target by nature
+and does not satisfy 1-source → N-clients.
+
 ## Runtime evidence (this machine, 2026-09-11)
 
 - `ForegroundSendInputAdapter` verified live: fresh Notepad focused via

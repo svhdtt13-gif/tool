@@ -209,6 +209,10 @@
                             <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=CoordinateModes}"
                                       SelectedItem="{Binding CoordinateMode, Mode=TwoWay}"
                                       AutomationProperties.Name="Coordinate mode" />
+                            <TextBlock Text="BACKEND" Style="{StaticResource SectionLabelStyle}" Margin="0,8,0,0" />
+                            <ComboBox ItemsSource="{Binding RelativeSource={RelativeSource AncestorType=Window}, Path=Backends}"
+                                      SelectedItem="{Binding BackendMode, Mode=TwoWay}"
+                                      AutomationProperties.Name="Input backend" />
                         </StackPanel>
                     </Grid>
                 </Border>

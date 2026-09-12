@@ -14,6 +14,7 @@ internal sealed class SampleSyncController : ISyncController
     private bool _keyboardEnabled = true;
     private bool _mouseEnabled = true;
     private CoordinateMode _coordinateMode = CoordinateMode.Relative;
+    private TargetBackend _backendMode = TargetBackend.Broadcast;
     private SyncState _state = SyncState.IDLE;
     private string _statusText = "READY";
 
@@ -57,6 +58,12 @@ internal sealed class SampleSyncController : ISyncController
     {
         get => _coordinateMode;
         set => Set(ref _coordinateMode, value);
+    }
+
+    public TargetBackend BackendMode
+    {
+        get => _backendMode;
+        set => Set(ref _backendMode, value);
     }
 
     public SyncState State

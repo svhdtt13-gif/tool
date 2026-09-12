@@ -68,6 +68,8 @@ public sealed class InputCapture : IDisposable
 
     public long FilteredEvents => Interlocked.Read(ref _filteredEvents);
 
+    public bool RequireForeground { get; set; } = true;
+
     public nint SourceHwnd
     {
         get => Interlocked.CompareExchange(ref _sourceHwnd, nint.Zero, nint.Zero);
@@ -163,7 +165,7 @@ public sealed class InputCapture : IDisposable
         {
             nint sourceHwnd = SourceHwnd;
             nint foregroundHwnd = GetForegroundWindow();
-            if (foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
+            if (RequireForeground && foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
             {
                 Interlocked.Increment(ref _filteredEvents);
                 continue;
