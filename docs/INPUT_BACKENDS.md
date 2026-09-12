@@ -44,6 +44,18 @@ Win32 messages do not work with every input backend.
   sequences must be expected in test strings, and Unikey-style composition
   is why the broadcast path mirrors observed text instead of raw keys.
 
+## Current routing (no BackendMode switch yet — deliberate)
+
+`RealSyncController` always drives the Win32 broadcast adapter today.
+A `BackendMode` (broadcast vs foreground SendInput) switch is intentionally
+**not built yet**: game evidence shows Win32 messages are ignored by qnyh
+while SendInput is single-foreground-target by nature, so a switcher would
+suggest a multi-target capability that does not exist. It will be designed
+only after the game verdict (Raw Input vs DirectInput vs async-state)
+determines what is actually possible — per reviewer direction, no blind
+patches. The per-input trace (`kbd … -> 0xHWND`, `mouse … -> (x,y)`)
+already shows capture → router → backend → API result for diagnosis.
+
 ## Reporting a game test
 
 Include: game title + version, windowed/fullscreen, which backend you

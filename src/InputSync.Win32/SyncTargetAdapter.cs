@@ -73,6 +73,15 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 }
             }
 
+            try
+            {
+                string text = string.IsNullOrEmpty(eventData.Text) ? "-" : eventData.Text;
+                _trace?.Invoke($"kbd {eventData.Action} vk={eventData.VirtualKey} scan={eventData.ScanCode} text={text} -> 0x{endpoint:X}");
+            }
+            catch
+            {
+            }
+
             return Succeed(eventData.CorrelationId);
         }
         catch
