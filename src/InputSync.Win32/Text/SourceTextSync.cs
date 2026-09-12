@@ -84,13 +84,14 @@ public sealed class SourceTextSync
             }
 
             TextEdit edit = TextDiffer.Compute(_snapshot, current, _maxLength);
-            Trace($"text snaplen={_snapshot.Length} cur={Describe(current)} backs={edit.Backspaces} ins={Describe(edit.Inserted)}");
+            int snapLength = _snapshot.Length;
             _snapshot = current;
             if (edit.IsEmpty)
             {
                 return string.Empty;
             }
 
+            Trace($"text snaplen={snapLength} cur={Describe(current)} backs={edit.Backspaces} ins={Describe(edit.Inserted)}");
             payload = (edit.Backspaces > 0 ? new string('\b', edit.Backspaces) : string.Empty)
                 + edit.Inserted;
             try

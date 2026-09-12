@@ -33,6 +33,7 @@ public sealed class InputCapture : IDisposable
     private CancellationTokenSource? _captureCancellation;
     private Task? _processingTask;
     private nint _sourceHwnd;
+    private long _filteredEvents;
     private bool _disposed;
 
     public InputCapture(
@@ -64,6 +65,8 @@ public sealed class InputCapture : IDisposable
     }
 
     public ChannelReader<NormalizedInputEvent> Reader => _events.Reader;
+
+    public long FilteredEvents => Interlocked.Read(ref _filteredEvents);
 
     public nint SourceHwnd
     {
@@ -162,6 +165,7 @@ public sealed class InputCapture : IDisposable
             nint foregroundHwnd = GetForegroundWindow();
             if (foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
             {
+                Interlocked.Increment(ref _filteredEvents);
                 continue;
             }
 
