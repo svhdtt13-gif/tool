@@ -104,15 +104,16 @@ public sealed class SyncTargetAdapter : ITargetAdapter
                 return Fail(eventData.CorrelationId);
             }
 
+            (nint child, int childX, int childY) = _resolver.ResolveAtPoint(eventData.TargetHwnd, x, y);
             try
             {
-                _trace?.Invoke(trace);
+                _trace?.Invoke($"{trace} child=0x{child:X} -> ({childX},{childY})");
             }
             catch
             {
             }
 
-            var routed = eventData with { X = x, Y = y };
+            var routed = eventData with { TargetHwnd = child, X = childX, Y = childY };
             return _inner.SendMouse(routed) ? Succeed(eventData.CorrelationId) : Fail(eventData.CorrelationId);
         }
         catch

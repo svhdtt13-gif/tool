@@ -18,6 +18,8 @@ public interface ISyncController : INotifyPropertyChanged
 
     bool MouseEnabled { get; set; }
 
+    TargetBackend BackendMode { get; set; }
+
     CoordinateMode CoordinateMode { get; set; }
 
     SyncState State { get; }
