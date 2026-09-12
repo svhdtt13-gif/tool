@@ -36,10 +36,17 @@ by a human for every verdict.
   OS-accepted, zero game effect. Do not claim Win32 support for this game.
 - **SendInput delivery: proven** on Notepad (exact text), API-accepted
   on the game with focus held.
-- **SendInput game effect: mouse click LIKELY, keyboard UNproven.**
-  WASD/arrows/M/B/Esc produced no attributable effect; chat/map/bag
-  hotkeys uncertain; skill key `1` inconclusive (combat noise).
-  Click-to-move coincided with a scene change but bots auto-walk.
+- **SendInput keyboard: PROVEN on qnyh via M key.** `M` down/up through
+  `ForegroundSendInputAdapter` opened the Skills (Kỹ Năng/Võ Học) panel —
+  verified by before/after screenshots (gameplay view → full skill grid).
+  WASD/arrows produced no movement (bindings uncertain or unbound);
+  chat (`Enter`+text) showed no text; `B` produced no visible panel;
+  skill key `1` inconclusive (combat noise). Methodology fix applied
+  mid-session: focus-first protocol (focus + 700ms settle BEFORE the
+  baseline screenshot), after discovering earlier diffs measured
+  Z-order/focus changes instead of game responses.
+- **SendInput mouse click LIKELY:** click-to-move coincided with a scene
+  change, but bots auto-walk, so this stays likely-not-proven.
 - **Focus is yanked mid-hold** by an unidentified window (twice).
   Any foreground test must re-assert focus and retry key-up, or keys
   can stick down in the game.
