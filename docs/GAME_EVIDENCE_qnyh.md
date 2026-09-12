@@ -36,14 +36,16 @@ by a human for every verdict.
   OS-accepted, zero game effect. Do not claim Win32 support for this game.
 - **SendInput delivery: proven** on Notepad (exact text), API-accepted
   on the game with focus held.
-- **SendInput keyboard: PROVEN on qnyh via M key.** `M` down/up through
-  `ForegroundSendInputAdapter` opened the Skills (Kỹ Năng/Võ Học) panel —
-  verified by before/after screenshots (gameplay view → full skill grid).
-  WASD/arrows produced no movement (bindings uncertain or unbound);
-  chat (`Enter`+text) showed no text; `B` produced no visible panel;
-  skill key `1` inconclusive (combat noise). Methodology fix applied
-  mid-session: focus-first protocol (focus + 700ms settle BEFORE the
-  baseline screenshot), after discovering earlier diffs measured
+- **SendInput keyboard on qnyh: UNPROVEN (conflicting trials).**
+  Trial 1 (client_63): `M` down/up → Skills panel appeared (looked like
+  proof). Trial 2 (client_1, focus-first protocol): `M` down/up, API
+  True/True, focus held → NO panel, 4.93% ambient diff. Possible causes:
+  game-state dependence, or trial 1 was bot coincidence (bots open UI
+  themselves). WASD/arrows produced no movement; chat showed no text;
+  `B`/skill-`1` inconclusive. Verdict: keyboard effect on qnyh is NOT
+  established; needs a quiet client with botting paused.
+- **Methodology fix applied mid-session:** focus-first protocol (focus +
+  700ms settle BEFORE baseline) after discovering early diffs measured
   Z-order/focus changes instead of game responses.
 - **SendInput mouse click LIKELY:** click-to-move coincided with a scene
   change, but bots auto-walk, so this stays likely-not-proven.

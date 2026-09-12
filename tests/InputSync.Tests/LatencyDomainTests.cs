@@ -40,6 +40,21 @@ public sealed class LatencyDomainTests
     }
 
     [Fact]
+    public void Adapter_Failures_AreCounted()
+    {
+        var broadcast = new SyncTargetAdapter(() => nint.Zero, () => CoordinateMode.Relative);
+        var foreground = new ForegroundSendInputAdapter();
+        var bogus = new nint(0x0BADF00D);
+
+        Assert.False(broadcast.SendKeyboard(new KeyboardEventData(bogus, 0x41, 30, KeyboardAction.Down)));
+        Assert.False(broadcast.SendText(bogus, "x"));
+        Assert.True(broadcast.SendFailures >= 2);
+
+        Assert.False(foreground.SendKeyboard(new KeyboardEventData(bogus, 0x41, 30, KeyboardAction.Down)));
+        Assert.True(foreground.SendFailures >= 1);
+    }
+
+    [Fact]
     public void MouseTrace_FiresOnlyForValidTranslate_NotOnInvalidTarget()
     {
         var traces = new List<string>();

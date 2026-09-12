@@ -128,6 +128,7 @@ public sealed class SyncTargetAdapter : ITargetAdapter
         {
             if (string.IsNullOrEmpty(text) || !IsWindow(targetHwnd))
             {
+                Interlocked.Increment(ref _sendFailures);
                 return false;
             }
 

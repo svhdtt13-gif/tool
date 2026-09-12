@@ -502,14 +502,19 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }
 
         _disposed = true;
-        try
+        Task? pump;
+        Task? monitor;
+        lock (_lifecycleGate)
         {
             _pumpCancellation?.Cancel();
-        }
-        catch
-        {
+            pump = _pumpTask;
+            monitor = _monitorTask;
+            _pumpTask = null;
+            _monitorTask = null;
         }
 
+        JoinWorker(pump);
+        JoinWorker(monitor);
         try
         {
             _debouncer?.Dispose();
@@ -912,6 +917,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
             Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
             Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
+            Metrics.DispatchFailures = _targetAdapter.SendFailures + _foregroundAdapter.SendFailures;
             string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
             if (!string.IsNullOrEmpty(mouseTrace))
             {
@@ -927,6 +933,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
                 if (engineTargets.TryGetValue(target.Window.Hwnd, out TargetStatus status))
                 {
+                    if (target.Status != TargetStatus.WINDOW_LOST && status == TargetStatus.WINDOW_LOST)
+                    {
+                        AddLog($"Target 0x{target.Window.Hwnd:X} lost; others continue.");
+                    }
+
                     target.Status = status;
                 }
             }
