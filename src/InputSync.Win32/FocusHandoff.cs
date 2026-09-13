@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace InputSync.Win32;
 
@@ -10,8 +11,17 @@ namespace InputSync.Win32;
 public static class FocusHandoff
 {
     public static (bool Ok, string Detail) EnsureForeground(
-        nint hwnd, int attempts = 3, int settleMs = 80)
+        nint hwnd, int attempts = 3, int settleMs = 80) =>
+        EnsureForeground(hwnd, CancellationToken.None, attempts, settleMs);
+
+    public static (bool Ok, string Detail) EnsureForeground(
+        nint hwnd, CancellationToken ct, int attempts = 2, int settleMs = 30)
     {
+        if (ct.IsCancellationRequested)
+        {
+            return (false, "cancelled");
+        }
+
         nint before;
         try
         {
@@ -35,6 +45,11 @@ public static class FocusHandoff
         nint after = before;
         for (int attempt = 1; attempt <= attempts; attempt++)
         {
+            if (ct.IsCancellationRequested)
+            {
+                return (false, "cancelled");
+            }
+
             try
             {
                 uint current = GetCurrentThreadId();
@@ -56,11 +71,19 @@ public static class FocusHandoff
                     return (false, $"handoff exception: {exception.GetType().Name}");
                 }
 
-                Thread.Sleep(settleMs);
+                if (!WaitForSettle(settleMs, ct))
+                {
+                    return (false, "cancelled");
+                }
+
                 continue;
             }
 
-            Thread.Sleep(settleMs);
+            if (!WaitForSettle(settleMs, ct))
+            {
+                return (false, "cancelled");
+            }
+
             try
             {
                 after = GetForegroundWindow();
@@ -77,6 +100,23 @@ public static class FocusHandoff
         }
 
         return (false, $"before=0x{before:X} after=0x{after:X} attempts={attempts}");
+    }
+
+    private static bool WaitForSettle(int settleMs, CancellationToken ct)
+    {
+        int remainingMs = Math.Max(0, settleMs);
+        while (remainingMs > 0)
+        {
+            int sliceMs = Math.Min(10, remainingMs);
+            if (ct.WaitHandle.WaitOne(sliceMs))
+            {
+                return false;
+            }
+
+            remainingMs -= sliceMs;
+        }
+
+        return !ct.IsCancellationRequested;
     }
 
     [DllImport("user32.dll")]
