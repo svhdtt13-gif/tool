@@ -19,6 +19,8 @@ public sealed class LowLevelHooks : IDisposable
     private Thread? _pumpThread;
     private uint _pumpThreadId;
     private Exception? _pumpError;
+    private long _rawReceived;
+    private long _injectedDropped;
     private bool _disposed;
 
     public LowLevelHooks(ChannelWriter<RawHookEvent> writer)
@@ -27,6 +29,10 @@ public sealed class LowLevelHooks : IDisposable
         _keyboardProc = KeyboardCallback;
         _mouseProc = MouseCallback;
     }
+
+    public long RawReceived => Interlocked.Read(ref _rawReceived);
+
+    public long InjectedDropped => Interlocked.Read(ref _injectedDropped);
 
     public void Install()
     {
@@ -188,10 +194,15 @@ public sealed class LowLevelHooks : IDisposable
     {
         if (nCode >= 0)
         {
+            Interlocked.Increment(ref _rawReceived);
             try
             {
                 KBDLLHOOKSTRUCT data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                if (!IsInjectedKeyboard(data.Flags))
+                if (IsInjectedKeyboard(data.Flags))
+                {
+                    Interlocked.Increment(ref _injectedDropped);
+                }
+                else
                 {
                     _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
                 }
@@ -208,10 +219,15 @@ public sealed class LowLevelHooks : IDisposable
     {
         if (nCode >= 0)
         {
+            Interlocked.Increment(ref _rawReceived);
             try
             {
                 MSLLHOOKSTRUCT data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                if (!IsInjectedMouse(data.Flags))
+                if (IsInjectedMouse(data.Flags))
+                {
+                    Interlocked.Increment(ref _injectedDropped);
+                }
+                else
                 {
                     _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
                 }

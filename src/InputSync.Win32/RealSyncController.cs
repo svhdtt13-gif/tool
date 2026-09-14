@@ -64,6 +64,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private long _lastUiSyncMs;
     private long _lastRotationFocusFailures;
     private long _lastRotationSendFailures;
+    private bool _loggedFirstEvent;
+    private long _lastCaptureLoggedRaw;
+    private long _lastCaptureLoggedEmitted;
+    private long _lastHookLoggedRaw;
+    private long _lastHookLoggedDropped;
     private string? _lastMouseTrace;
 
     public RealSyncController(
@@ -394,6 +399,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _rotationEngine?.EmergencyStop();
             _rotationEngine?.Dispose();
             _rotationEngine = null;
+            try
+            {
+                _capture?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _capture = null;
 
             if (Source is null || !WindowManager.IsWindowValid(Source.Hwnd))
             {
@@ -405,14 +419,15 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             _engine.Dispose();
             _engine = CreateEngine();
+            _pumpCancellation?.Dispose();
+            _pumpCancellation = new CancellationTokenSource();
+            CancellationToken pumpToken = _pumpCancellation.Token;
             _rotationTracker = new InputStateTracker();
             _rotationEngine = new GameRotationEngine(
                 _foregroundAdapter,
                 _rotationTracker,
                 WindowManager.IsWindowValid,
-                hwnd => FocusHandoff.EnsureForeground(
-                    hwnd,
-                    _pumpCancellation?.Token ?? CancellationToken.None),
+                hwnd => FocusHandoff.EnsureForeground(hwnd, pumpToken),
                 (data, target) => RotatingSendInputAdapter.TranslateRelative(
                     _source?.Hwnd ?? nint.Zero,
                     target,
@@ -457,10 +472,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
             try
             {
-                _capture ??= new InputCapture(Source.Hwnd, _normalizer, _translator);
+                _capture = new InputCapture(Source.Hwnd, _normalizer, _translator);
                 _capture.SourceHwnd = Source.Hwnd;
                 _capture.RequireForeground = _backendMode == TargetBackend.Broadcast;
                 _capture.Start();
+                AddLog($"Capture started: source=0x{Source.Hwnd:X} requireFg={_capture.RequireForeground}.");
             }
             catch (Exception exception) when (exception is not StackOverflowException)
             {
@@ -497,9 +513,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 return;
             }
 
-            _pumpCancellation?.Dispose();
-            _pumpCancellation = new CancellationTokenSource();
-            CancellationToken token = _pumpCancellation.Token;
+            _loggedFirstEvent = false;
+            Interlocked.Exchange(ref _lastCaptureLoggedRaw, 0);
+            Interlocked.Exchange(ref _lastCaptureLoggedEmitted, 0);
+            Interlocked.Exchange(ref _lastHookLoggedRaw, 0);
+            Interlocked.Exchange(ref _lastHookLoggedDropped, 0);
+            CancellationToken token = pumpToken;
             _pumpTask = Task.Run(() => PumpLoopAsync(token), CancellationToken.None);
             _monitorTask = Task.Run(() => MonitorLoopAsync(token), CancellationToken.None);
 
@@ -731,6 +750,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
                 _latency.RecordEnqueued(evt.Id, evt.Timestamp);
                 Interlocked.Increment(ref _eventsReceived);
+                if (!_loggedFirstEvent)
+                {
+                    _loggedFirstEvent = true;
+                    AddLog($"First live event: {evt.Type}/{evt.Action} vk={evt.Vk} x={evt.X},y={evt.Y}.");
+                }
 
                 bool? queued;
                 if (evt.Type == InputEventType.Keyboard)
@@ -1093,6 +1117,23 @@ public sealed class RealSyncController : ISyncController, IDisposable
             if (sendFailures > previousSendFailures)
             {
                 AddLog($"Rotation send failures: {sendFailures}/{rotation.Sends + sendFailures} sends.");
+            }
+
+            InputCapture? liveCapture = _capture;
+            if (liveCapture is not null)
+            {
+                long raw = liveCapture.RawSeen;
+                long emitted = liveCapture.NormalizedEmitted;
+                long hookRaw = liveCapture.HookRawReceived;
+                long hookDropped = liveCapture.HookInjectedDropped;
+                long prevRaw = Interlocked.Exchange(ref _lastCaptureLoggedRaw, raw);
+                long prevEmitted = Interlocked.Exchange(ref _lastCaptureLoggedEmitted, emitted);
+                Interlocked.Exchange(ref _lastHookLoggedRaw, hookRaw);
+                Interlocked.Exchange(ref _lastHookLoggedDropped, hookDropped);
+                if ((raw != prevRaw || emitted != prevEmitted) && received <= 1)
+                {
+                    AddLog($"Capture flow: hookRaw={hookRaw} injectedDropped={hookDropped} rawSeen={raw} normalized={emitted} pumpReceived={received}.");
+                }
             }
         }
 
