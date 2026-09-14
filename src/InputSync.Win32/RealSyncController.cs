@@ -775,7 +775,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 }
                 else
                 {
-                    queued = QueueBroadcastMouse(evt);
+                    queued = IsRotation ? QueueRotationMouse(evt) : QueueBroadcastMouse(evt);
                 }
 
                 if (queued is null)
@@ -822,6 +822,29 @@ public sealed class RealSyncController : ISyncController, IDisposable
     {
         // Rotation mirrors physical key events only; text and clipboard mirroring are disabled.
         return TryQueueKeyboardToActive(ToKeyboard(evt));
+    }
+
+    private bool QueueRotationMouse(NormalizedInputEvent evt)
+    {
+        // Foreground SendInput owns the single system cursor: mirroring raw
+        // moves would yank the cursor through every target on each motion and
+        // pin focus away from the desktop. Drop standalone moves; anchor the
+        // cursor with one translated move right before each click/wheel so the
+        // press lands at the right client position.
+        MouseEventData mouse = ToMouse(evt);
+        if (mouse.Action == MouseAction.Move)
+        {
+            return true;
+        }
+
+        MouseEventData anchor = mouse with
+        {
+            Action = MouseAction.Move,
+            Button = MouseButton.None,
+            PressedButtons = MouseButtonMask.None,
+            WheelDelta = 0,
+        };
+        return TryQueueMouseToActive(anchor) && TryQueueMouseToActive(mouse);
     }
 
     private bool QueueBroadcastMouse(NormalizedInputEvent evt)
