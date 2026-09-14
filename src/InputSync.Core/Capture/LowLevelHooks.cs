@@ -34,6 +34,21 @@ public sealed class LowLevelHooks : IDisposable
 
     public long InjectedDropped => Interlocked.Read(ref _injectedDropped);
 
+    public nint KeyboardHook => Volatile.Read(ref _keyboardHook);
+
+    public nint MouseHook => Volatile.Read(ref _mouseHook);
+
+    public uint PumpThreadId
+    {
+        get
+        {
+            lock (_lifecycleGate)
+            {
+                return _pumpThreadId;
+            }
+        }
+    }
+
     public void Install()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

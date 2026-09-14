@@ -477,6 +477,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 _capture.RequireForeground = _backendMode == TargetBackend.Broadcast;
                 _capture.Start();
                 AddLog($"Capture started: source=0x{Source.Hwnd:X} requireFg={_capture.RequireForeground}.");
+                AddLog($"HOOK INSTALL: keyboard=0x{_capture.HookKeyboardHandle:X} mouse=0x{_capture.HookMouseHandle:X} pumpThread={_capture.HookPumpThreadId}.");
             }
             catch (Exception exception) when (exception is not StackOverflowException)
             {
@@ -1102,6 +1103,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
             ? CountTargets(TargetStatus.WINDOW_LOST)
             : (int)Math.Min(int.MaxValue, rotation.LostTargets);
         nint? sourceHwnd = _source?.Hwnd;
+        InputCapture? captureForMetrics = _capture;
+        long hookRawForMetrics = captureForMetrics?.HookRawReceived ?? 0;
+        long hookDroppedForMetrics = captureForMetrics?.HookInjectedDropped ?? 0;
+        long captureRawForMetrics = captureForMetrics?.RawSeen ?? 0;
+        long captureNormalizedForMetrics = captureForMetrics?.NormalizedEmitted ?? 0;
+        long filteredForMetrics = captureForMetrics?.FilteredEvents ?? 0;
 
         if (rotation is not null)
         {
@@ -1144,7 +1151,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.EventsDropped = dropped;
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
-            Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
+            Metrics.FilteredEvents = filteredForMetrics;
+            Metrics.HookRaw = hookRawForMetrics;
+            Metrics.InjectedDropped = hookDroppedForMetrics;
+            Metrics.CaptureRawSeen = captureRawForMetrics;
+            Metrics.CaptureNormalized = captureNormalizedForMetrics;
             Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
             Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
             Metrics.DispatchFailures = dispatchFailures;

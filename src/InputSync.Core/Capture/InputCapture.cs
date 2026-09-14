@@ -80,6 +80,12 @@ public sealed class InputCapture : IDisposable
 
     public long HookInjectedDropped => _hooks.InjectedDropped;
 
+    public nint HookKeyboardHandle => _hooks.KeyboardHook;
+
+    public nint HookMouseHandle => _hooks.MouseHook;
+
+    public uint HookPumpThreadId => _hooks.PumpThreadId;
+
     public bool RequireForeground { get; set; } = true;
 
     public nint SourceHwnd
