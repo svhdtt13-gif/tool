@@ -1135,11 +1135,22 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 long hookDropped = liveCapture.HookInjectedDropped;
                 long prevRaw = Interlocked.Exchange(ref _lastCaptureLoggedRaw, raw);
                 long prevEmitted = Interlocked.Exchange(ref _lastCaptureLoggedEmitted, emitted);
-                Interlocked.Exchange(ref _lastHookLoggedRaw, hookRaw);
+                long prevHookRaw = Interlocked.Exchange(ref _lastHookLoggedRaw, hookRaw);
                 Interlocked.Exchange(ref _lastHookLoggedDropped, hookDropped);
                 if ((raw != prevRaw || emitted != prevEmitted) && received <= 1)
                 {
                     AddLog($"Capture flow: hookRaw={hookRaw} injectedDropped={hookDropped} rawSeen={raw} normalized={emitted} pumpReceived={received}.");
+                }
+
+                long kbdRaw = liveCapture.HookKbdRaw;
+                long kbdDropped = liveCapture.HookKbdDropped;
+                long mouseRaw = liveCapture.HookMouseRaw;
+                long mouseDropped = liveCapture.HookMouseDropped;
+                if (hookRaw != prevHookRaw && received == 0)
+                {
+                    string drops = string.Join(" | ", liveCapture.HookDropSamples);
+                    string accepts = string.Join(" | ", liveCapture.HookAcceptSamples);
+                    AddLog($"Hook split: kbd raw={kbdRaw} dropped={kbdDropped} mouse raw={mouseRaw} dropped={mouseDropped}. Drops: {drops}. Accepts: {accepts}.");
                 }
             }
         }
