@@ -94,7 +94,7 @@ public sealed class GameRotationEngineTests
         Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x31, KeyboardAction.Down)));
         WaitFor(() => engine.Sends >= 3 && traces.Count >= 3);
 
-        Assert.Equal(new nint[] { new(100), new(200), new(300) }, focusLog);
+        Assert.Equal(new nint[] { new(100), new(200), new(300), new(1) }, focusLog);
         Assert.Equal(3, sender.Keys.Count);
         Assert.Equal(3, sender.Keys.Select(key => key.TargetHwnd).Distinct().Count());
         Assert.Equal(3, engine.EventsDispatched);
@@ -122,7 +122,7 @@ public sealed class GameRotationEngineTests
         Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x41, KeyboardAction.Down)));
         WaitFor(() => engine.FocusAttempts >= 3);
 
-        Assert.Equal(new nint[] { new(100), new(200), new(300) }, focusLog);
+        Assert.Equal(new nint[] { new(100), new(200), new(300), new(1) }, focusLog);
         Assert.Contains(sender.Keys, key => key.TargetHwnd == new nint(100));
         Assert.DoesNotContain(sender.Keys, key => key.TargetHwnd == new nint(200));
         Assert.Contains(sender.Keys, key => key.TargetHwnd == new nint(300));
@@ -248,6 +248,42 @@ public sealed class GameRotationEngineTests
     }
 
     [Fact]
+    public void ReturnFocus_AfterRotation_EndsOnSource()
+    {
+        var sender = new FakeSender();
+        var focusLog = new List<nint>();
+        using var engine = CreateEngine(sender, focusLog);
+        engine.AddTarget(new nint(100));
+        engine.AddTarget(new nint(200));
+
+        Assert.True(engine.Start());
+        Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x31, KeyboardAction.Down)));
+        WaitFor(() => focusLog.Count >= 3);
+
+        Assert.Equal(new nint(1), focusLog[^1]);
+        Assert.DoesNotContain(focusLog, hwnd => hwnd == nint.Zero);
+    }
+
+    [Fact]
+    public void Stop_ReturnsFocusToSource()
+    {
+        var sender = new FakeSender();
+        var focusLog = new List<nint>();
+        using var engine = CreateEngine(sender, focusLog);
+        engine.AddTarget(new nint(100));
+
+        Assert.True(engine.Start());
+        Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x31, KeyboardAction.Down)));
+        WaitFor(() => sender.Keys.Count >= 1);
+
+        focusLog.Clear();
+        engine.Stop();
+
+        Assert.Contains(focusLog, hwnd => hwnd == new nint(1));
+        Assert.Equal(SyncState.IDLE, engine.State);
+    }
+
+    [Fact]
     public void ZeroTarget_Safe()
     {
         var sender = new FakeSender();
@@ -257,12 +293,13 @@ public sealed class GameRotationEngineTests
         Assert.True(engine.Start());
         Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x41, KeyboardAction.Down)));
         WaitFor(() => engine.EventsReceived == 1);
+        Assert.Empty(focusLog);
         engine.Stop();
 
         Assert.Equal(SyncState.IDLE, engine.State);
         Assert.Equal(0, engine.Sends);
         Assert.Empty(sender.Keys);
-        Assert.Empty(focusLog);
+        Assert.All(focusLog, hwnd => Assert.Equal(new nint(1), hwnd));
     }
 
     [Fact]

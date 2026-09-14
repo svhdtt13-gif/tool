@@ -387,7 +387,8 @@ public sealed class GameRotationEngine : IDisposable
                     }
 
                     List<nint> snapshot = SnapshotActiveTargets();
-                    DispatchEvent(input, snapshot, cancellationToken, eventGeneration);
+                    nint eventSource = ReadSource();
+                    DispatchEvent(input, snapshot, eventSource, cancellationToken, eventGeneration);
                 }
             }
         }
@@ -403,6 +404,7 @@ public sealed class GameRotationEngine : IDisposable
     private void DispatchEvent(
         QueuedInput input,
         List<nint> targets,
+        nint source,
         CancellationToken cancellationToken,
         long generation)
     {
@@ -508,6 +510,32 @@ public sealed class GameRotationEngine : IDisposable
             Trace(input.CorrelationId, what, target, $"focus=ok send={sent}");
             RecordLatency(input.EnqueueTicks);
         }
+
+        if (targets.Count > 0)
+        {
+            ReturnFocusToSource(source, cancellationToken, generation);
+        }
+    }
+
+    private nint ReadSource()
+    {
+        lock (_stateGate)
+        {
+            return _sourceHwnd;
+        }
+    }
+
+    private void ReturnFocusToSource(nint source, CancellationToken cancellationToken, long generation)
+    {
+        if (source == nint.Zero
+            || cancellationToken.IsCancellationRequested
+            || generation != Generation
+            || !SafeIsWindow(source))
+        {
+            return;
+        }
+
+        SafeEnsureForeground(source);
     }
 
     private List<nint> SnapshotActiveTargets()
@@ -577,6 +605,7 @@ public sealed class GameRotationEngine : IDisposable
     private void StopCore(SyncControllerFault fault, bool isEmergency = false)
     {
         nint[] targets;
+        nint source;
         lock (_stateGate)
         {
             if (_state == SyncState.STOPPING)
@@ -589,12 +618,15 @@ public sealed class GameRotationEngine : IDisposable
             _cancellation?.Cancel();
             ClearQueue();
             targets = [.. _targetOrder];
+            source = _sourceHwnd;
         }
 
         foreach (nint target in targets)
         {
             ReleaseTarget(target, isEmergency);
         }
+
+        ReturnFocusToSource(source, CancellationToken.None, Generation);
 
         lock (_stateGate)
         {
