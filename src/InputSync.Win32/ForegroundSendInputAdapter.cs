@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using InputSync.Core.Capture;
 using InputSync.Core.Dispatch;
 using InputSync.Core.Models;
 
@@ -62,6 +63,7 @@ public sealed class ForegroundSendInputAdapter : ITargetAdapter
                         ScanCode = (ushort)eventData.ScanCode,
                         Flags = (eventData.IsExtended ? KeyEventExtendedKey : 0) |
                             (eventData.Action == KeyboardAction.Up ? KeyEventKeyUp : 0),
+                        ExtraInfo = LowLevelHooks.SelfExtraInfoTag,
                     },
                 },
             };
@@ -83,6 +85,7 @@ public sealed class ForegroundSendInputAdapter : ITargetAdapter
             }
 
             MouseInput mouse = BuildMouseInput(eventData);
+            mouse.ExtraInfo = LowLevelHooks.SelfExtraInfoTag;
             Input input = new()
             {
                 Type = InputMouse,

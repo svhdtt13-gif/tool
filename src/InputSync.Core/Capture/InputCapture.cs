@@ -88,6 +88,8 @@ public sealed class InputCapture : IDisposable
 
     public long HookMouseDropped => _hooks.MouseDropped;
 
+    public long HookForeignInjectedAccepted => _hooks.ForeignInjectedAccepted;
+
     public IReadOnlyList<string> HookDropSamples => _hooks.DropSamples;
 
     public IReadOnlyList<string> HookAcceptSamples => _hooks.AcceptSamples;

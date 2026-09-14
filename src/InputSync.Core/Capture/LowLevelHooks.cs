@@ -9,6 +9,15 @@ public sealed class LowLevelHooks : IDisposable
     public const int WH_KEYBOARD_LL = 13;
     public const int WH_MOUSE_LL = 14;
 
+    /// <summary>
+    /// Tag stamped into dwExtraInfo of every SendInput this app injects.
+    /// Hook callbacks drop ONLY injected events carrying this tag (our own
+    /// echo). Foreign injected input (RDP/remote/VM/IME reinject) carries a
+    /// different tag and must flow into the pipeline. Never remove the tag
+    /// check to unblock events; that would reopen the echo loop.
+    /// </summary>
+    public static readonly nuint SelfExtraInfoTag = unchecked((nuint)0x4953594E43313233UL);
+
     private readonly object _lifecycleGate = new();
     private readonly ChannelWriter<RawHookEvent> _writer;
     private readonly HookProc _keyboardProc;
@@ -25,6 +34,7 @@ public sealed class LowLevelHooks : IDisposable
     private long _kbdDropped;
     private long _mouseRaw;
     private long _mouseDropped;
+    private long _foreignInjected;
     private readonly object _sampleGate = new();
     private readonly List<string> _dropSamples = [];
     private readonly List<string> _acceptSamples = [];
@@ -48,6 +58,8 @@ public sealed class LowLevelHooks : IDisposable
     public long MouseRaw => Interlocked.Read(ref _mouseRaw);
 
     public long MouseDropped => Interlocked.Read(ref _mouseDropped);
+
+    public long ForeignInjectedAccepted => Interlocked.Read(ref _foreignInjected);
 
     public IReadOnlyList<string> DropSamples
     {
@@ -251,7 +263,7 @@ public sealed class LowLevelHooks : IDisposable
             try
             {
                 KBDLLHOOKSTRUCT data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                if (IsInjectedKeyboard(data.Flags))
+                if (IsSelfEchoKeyboard(data.Flags, data.DwExtraInfo))
                 {
                     Interlocked.Increment(ref _injectedDropped);
                     Interlocked.Increment(ref _kbdDropped);
@@ -259,6 +271,11 @@ public sealed class LowLevelHooks : IDisposable
                 }
                 else
                 {
+                    if (IsInjectedKeyboard(data.Flags))
+                    {
+                        Interlocked.Increment(ref _foreignInjected);
+                    }
+
                     RememberSample(_acceptSamples, $"kbd msg=0x{wParam:X} vk={data.VkCode} flags=0x{data.Flags:X}");
                     _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
                 }
@@ -280,7 +297,7 @@ public sealed class LowLevelHooks : IDisposable
             try
             {
                 MSLLHOOKSTRUCT data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                if (IsInjectedMouse(data.Flags))
+                if (IsSelfEchoMouse(data.Flags, data.DwExtraInfo))
                 {
                     Interlocked.Increment(ref _injectedDropped);
                     Interlocked.Increment(ref _mouseDropped);
@@ -288,6 +305,11 @@ public sealed class LowLevelHooks : IDisposable
                 }
                 else
                 {
+                    if (IsInjectedMouse(data.Flags))
+                    {
+                        Interlocked.Increment(ref _foreignInjected);
+                    }
+
                     RememberSample(_acceptSamples, $"mouse msg=0x{wParam:X} flags=0x{data.Flags:X}");
                     _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
                 }
@@ -303,6 +325,12 @@ public sealed class LowLevelHooks : IDisposable
     public static bool IsInjectedKeyboard(uint flags) => (flags & LLKHF_INJECTED) != 0;
 
     public static bool IsInjectedMouse(uint flags) => (flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED)) != 0;
+
+    public static bool IsSelfEchoKeyboard(uint flags, nuint extraInfo) =>
+        IsInjectedKeyboard(flags) && extraInfo == SelfExtraInfoTag;
+
+    public static bool IsSelfEchoMouse(uint flags, nuint extraInfo) =>
+        IsInjectedMouse(flags) && extraInfo == SelfExtraInfoTag;
 
     private void RememberSample(List<string> bucket, string line)
     {

@@ -1150,7 +1150,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 {
                     string drops = string.Join(" | ", liveCapture.HookDropSamples);
                     string accepts = string.Join(" | ", liveCapture.HookAcceptSamples);
-                    AddLog($"Hook split: kbd raw={kbdRaw} dropped={kbdDropped} mouse raw={mouseRaw} dropped={mouseDropped}. Drops: {drops}. Accepts: {accepts}.");
+                    AddLog($"Hook split: kbd raw={kbdRaw} dropped={kbdDropped} mouse raw={mouseRaw} dropped={mouseDropped} foreignAccepted={liveCapture.HookForeignInjectedAccepted}. Drops: {drops}. Accepts: {accepts}.");
                 }
             }
         }

@@ -44,4 +44,23 @@ public sealed class HookPumpTests
     [InlineData(0x03u, true)]
     public void IsInjectedMouse_ClassifiesHookFlags(uint flags, bool expected) =>
         Assert.Equal(expected, LowLevelHooks.IsInjectedMouse(flags));
+
+    [Fact]
+    public void IsSelfEchoKeyboard_RequiresTagMatch()
+    {
+        nuint tag = LowLevelHooks.SelfExtraInfoTag;
+        Assert.True(LowLevelHooks.IsSelfEchoKeyboard(0x10u, tag));
+        Assert.False(LowLevelHooks.IsSelfEchoKeyboard(0x10u, 0));
+        Assert.False(LowLevelHooks.IsSelfEchoKeyboard(0u, tag));
+    }
+
+    [Fact]
+    public void IsSelfEchoMouse_RequiresTagMatch()
+    {
+        nuint tag = LowLevelHooks.SelfExtraInfoTag;
+        Assert.True(LowLevelHooks.IsSelfEchoMouse(0x01u, tag));
+        Assert.True(LowLevelHooks.IsSelfEchoMouse(0x02u, tag));
+        Assert.False(LowLevelHooks.IsSelfEchoMouse(0x01u, 0));
+        Assert.False(LowLevelHooks.IsSelfEchoMouse(0u, tag));
+    }
 }
