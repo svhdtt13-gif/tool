@@ -1167,6 +1167,27 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.InjectedDropped = hookDroppedForMetrics;
             Metrics.CaptureRawSeen = captureRawForMetrics;
             Metrics.CaptureNormalized = captureNormalizedForMetrics;
+            Metrics.HookKbdRaw = captureForMetrics?.HookKbdRaw ?? 0;
+            Metrics.HookKbdDropped = captureForMetrics?.HookKbdDropped ?? 0;
+            Metrics.HookMouseRaw = captureForMetrics?.HookMouseRaw ?? 0;
+            Metrics.HookMouseDropped = captureForMetrics?.HookMouseDropped ?? 0;
+            try
+            {
+                IReadOnlyList<string>? drops = captureForMetrics?.HookDropSamples;
+                IReadOnlyList<string>? accepts = captureForMetrics?.HookAcceptSamples;
+                string sample = (drops is { Count: > 0 })
+                    ? "DROP " + drops[0]
+                    : (accepts is { Count: > 0 } ? "OK " + accepts[0] : string.Empty);
+                if (sample.Length > 160)
+                {
+                    sample = sample[..160];
+                }
+
+                Metrics.HookSample = sample;
+            }
+            catch
+            {
+            }
             Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
             Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
             Metrics.DispatchFailures = dispatchFailures;

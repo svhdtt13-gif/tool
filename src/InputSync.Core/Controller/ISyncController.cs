@@ -102,6 +102,11 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     private long _injectedDropped;
     private long _captureRawSeen;
     private long _captureNormalized;
+    private long _hookKbdRaw;
+    private long _hookKbdDropped;
+    private long _hookMouseRaw;
+    private long _hookMouseDropped;
+    private string _hookSample = string.Empty;
     private int _activeTargets;
     private int _lostTargets;
     private double _averageLatencyMs;
@@ -131,6 +136,16 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     public long CaptureRawSeen { get => _captureRawSeen; set => Set(ref _captureRawSeen, value, nameof(CaptureRawSeen)); }
 
     public long CaptureNormalized { get => _captureNormalized; set => Set(ref _captureNormalized, value, nameof(CaptureNormalized)); }
+
+    public long HookKbdRaw { get => _hookKbdRaw; set => Set(ref _hookKbdRaw, value, nameof(HookKbdRaw)); }
+
+    public long HookKbdDropped { get => _hookKbdDropped; set => Set(ref _hookKbdDropped, value, nameof(HookKbdDropped)); }
+
+    public long HookMouseRaw { get => _hookMouseRaw; set => Set(ref _hookMouseRaw, value, nameof(HookMouseRaw)); }
+
+    public long HookMouseDropped { get => _hookMouseDropped; set => Set(ref _hookMouseDropped, value, nameof(HookMouseDropped)); }
+
+    public string HookSample { get => _hookSample; set => Set(ref _hookSample, value, nameof(HookSample)); }
 
     public int ActiveTargets { get => _activeTargets; set => Set(ref _activeTargets, value, nameof(ActiveTargets)); }
 
