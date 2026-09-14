@@ -28,8 +28,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private readonly IKeyboardLayoutTranslator _translator;
     private readonly SyncTargetAdapter _targetAdapter;
     private readonly ForegroundSendInputAdapter _foregroundAdapter = new();
+    private readonly RotatingSendInputAdapter _rotatingAdapter;
     private readonly LatencyTracker _latency = new();
+    private int _rotationAttempts = 3;
     private SyncController _engine;
+    private GameRotationEngine? _rotationEngine;
+    private InputStateTracker _rotationTracker = new();
     private TargetBackend _backendMode = TargetBackend.Broadcast;
     private readonly Stopwatch _uiSyncClock = Stopwatch.StartNew();
     private readonly object _lifecycleGate = new();
@@ -58,6 +62,13 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private long _eventsDropped;
     private long _textCharsEmitted;
     private long _lastUiSyncMs;
+    private long _lastRotationFocusFailures;
+    private long _lastRotationSendFailures;
+    private bool _loggedFirstEvent;
+    private long _lastCaptureLoggedRaw;
+    private long _lastCaptureLoggedEmitted;
+    private long _lastHookLoggedRaw;
+    private long _lastHookLoggedDropped;
     private string? _lastMouseTrace;
 
     public RealSyncController(
@@ -83,6 +94,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                     AddLog(line);
                 }
             });
+        _rotatingAdapter = new RotatingSendInputAdapter(
+            hwnd => FocusHandoff.EnsureForeground(hwnd, _rotationAttempts),
+            _foregroundAdapter,
+            () => _source?.Hwnd ?? nint.Zero,
+            () => _coordinateMode,
+            trace: AddLog);
         _engine?.Dispose();
         _engine = CreateEngine();
         RefreshWindows();
@@ -90,10 +107,103 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private SyncController CreateEngine()
     {
-        ITargetAdapter adapter = _backendMode == TargetBackend.Foreground
-            ? _foregroundAdapter
-            : _targetAdapter;
+        ITargetAdapter adapter = _backendMode switch
+        {
+            TargetBackend.Foreground => _foregroundAdapter,
+            TargetBackend.GameRotation => _rotatingAdapter,
+            _ => _targetAdapter,
+        };
         return new SyncController(adapter, new InputStateTracker(), WindowManager.IsWindowValid);
+    }
+
+    private bool IsRotation => _backendMode == TargetBackend.GameRotation;
+
+    private bool TryQueueKeyboardToActive(KeyboardEventData data) => IsRotation
+        ? _rotationEngine?.TryQueueKeyboard(data) == true
+        : _engine.TryQueueKeyboard(data);
+
+    private bool TryQueueMouseToActive(MouseEventData data) => IsRotation
+        ? _rotationEngine?.TryQueueMouse(data) == true
+        : _engine.TryQueueMouse(data);
+
+    private SyncState EngineState() => IsRotation
+        ? _rotationEngine?.State ?? SyncState.IDLE
+        : _engine.State;
+
+    private SyncControllerFault EngineFault() => IsRotation
+        ? _rotationEngine?.Fault ?? SyncControllerFault.NONE
+        : _engine.Fault;
+
+    private IReadOnlyDictionary<nint, TargetStatus> EngineTargets() => IsRotation
+        ? _rotationEngine?.Targets ?? new Dictionary<nint, TargetStatus>()
+        : _engine.Targets;
+
+    private bool EngineStart() => IsRotation
+        ? _rotationEngine?.Start() == true
+        : _engine.Start();
+
+    private bool EnginePause() => IsRotation
+        ? _rotationEngine?.Pause() == true
+        : _engine.Pause();
+
+    private bool EngineResume() => IsRotation
+        ? _rotationEngine?.Resume() == true
+        : _engine.Resume();
+
+    private void EngineStop()
+    {
+        if (IsRotation)
+        {
+            _rotationEngine?.Stop();
+        }
+        else
+        {
+            _engine.Stop();
+        }
+    }
+
+    private void EngineEmergencyStop()
+    {
+        if (IsRotation)
+        {
+            _rotationEngine?.EmergencyStop();
+        }
+        else
+        {
+            _engine.EmergencyStop();
+        }
+    }
+
+    private void EngineSetSource(nint hwnd)
+    {
+        if (IsRotation)
+        {
+            _rotationEngine?.SetSource(hwnd);
+        }
+        else
+        {
+            _engine.SetSource(hwnd);
+        }
+    }
+
+    private bool EngineAddTarget(nint hwnd) => IsRotation
+        ? _rotationEngine?.AddTarget(hwnd) == true
+        : _engine.AddTarget(hwnd);
+
+    private bool EngineRemoveTarget(nint hwnd) => IsRotation
+        ? _rotationEngine?.RemoveTarget(hwnd) == true
+        : _engine.RemoveTarget(hwnd);
+
+    private void EngineRefresh()
+    {
+        if (IsRotation)
+        {
+            _rotationEngine?.RefreshTargets();
+        }
+        else
+        {
+            _engine.RefreshTargets();
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -273,7 +383,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             AddTarget(new SyncTarget(window, previouslyEnabled.Contains(window.Hwnd)));
         }
 
-        _engine.RefreshTargets();
+        EngineRefresh();
         SyncUiState(force: true);
         AddLog($"Window list refreshed: {discovered.Count} real top-level windows discovered.");
     }
@@ -285,6 +395,20 @@ public sealed class RealSyncController : ISyncController, IDisposable
             ThrowIfDisposed();
             StopPumpAndCapture();
 
+            _engine.Stop();
+            _rotationEngine?.EmergencyStop();
+            _rotationEngine?.Dispose();
+            _rotationEngine = null;
+            try
+            {
+                _capture?.Dispose();
+            }
+            catch
+            {
+            }
+
+            _capture = null;
+
             if (Source is null || !WindowManager.IsWindowValid(Source.Hwnd))
             {
                 State = SyncState.ERROR;
@@ -293,11 +417,27 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 return;
             }
 
-            _engine?.Dispose();
-            _engine = CreateEngine();
             _engine.Dispose();
             _engine = CreateEngine();
-            _engine.SetSource(Source.Hwnd);
+            _pumpCancellation?.Dispose();
+            _pumpCancellation = new CancellationTokenSource();
+            CancellationToken pumpToken = _pumpCancellation.Token;
+            _rotationTracker = new InputStateTracker();
+            _rotationEngine = new GameRotationEngine(
+                _foregroundAdapter,
+                _rotationTracker,
+                WindowManager.IsWindowValid,
+                hwnd => FocusHandoff.EnsureForeground(hwnd, pumpToken),
+                (data, target) => RotatingSendInputAdapter.TranslateRelative(
+                    _source?.Hwnd ?? nint.Zero,
+                    target,
+                    _coordinateMode,
+                    data),
+                AddLog);
+            _rotationAttempts = 3;
+            Interlocked.Exchange(ref _lastRotationFocusFailures, 0);
+            Interlocked.Exchange(ref _lastRotationSendFailures, 0);
+            EngineSetSource(Source.Hwnd);
             int enabledTargets = 0;
             foreach (SyncTarget target in Targets)
             {
@@ -307,9 +447,17 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 }
 
                 enabledTargets++;
-                target.Status = _engine.AddTarget(target.Window.Hwnd)
+                target.Status = EngineAddTarget(target.Window.Hwnd)
                     ? TargetStatus.ACTIVE
                     : TargetStatus.WINDOW_LOST;
+            }
+
+            if (_backendMode != TargetBackend.Broadcast && enabledTargets == 0)
+            {
+                State = SyncState.ERROR;
+                StatusText = "NO TARGETS";
+                AddLog("Game backends need at least one enabled target.");
+                return;
             }
 
             if (_backendMode == TargetBackend.Foreground && enabledTargets > 1)
@@ -317,12 +465,19 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 AddLog("Foreground backend drives only the focused window; extra targets will report WINDOW LOST.");
             }
 
+            if (_backendMode == TargetBackend.GameRotation)
+            {
+                AddLog($"Focus rotation across {enabledTargets} target(s): sequential, not simultaneous background input.");
+            }
+
             try
             {
-                _capture ??= new InputCapture(Source.Hwnd, _normalizer, _translator);
+                _capture = new InputCapture(Source.Hwnd, _normalizer, _translator);
                 _capture.SourceHwnd = Source.Hwnd;
                 _capture.RequireForeground = _backendMode == TargetBackend.Broadcast;
                 _capture.Start();
+                AddLog($"Capture started: source=0x{Source.Hwnd:X} requireFg={_capture.RequireForeground}.");
+                AddLog($"HOOK INSTALL: keyboard=0x{_capture.HookKeyboardHandle:X} mouse=0x{_capture.HookMouseHandle:X} pumpThread={_capture.HookPumpThreadId}.");
             }
             catch (Exception exception) when (exception is not StackOverflowException)
             {
@@ -342,21 +497,29 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 _clipboardSeq = 0;
             }
 
-            _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets, trace: AddLog);
-            _textSync.Sync();
             _debouncer?.Dispose();
-            _debouncer = new DebouncedTextSync(() => _textSync.SyncStable());
+            _debouncer = null;
+            _textSync = null;
+            if (!IsRotation)
+            {
+                _textSync = new SourceTextSync(ReadSourceText, EmitTextToTargets, trace: AddLog);
+                _textSync.Sync();
+                _debouncer = new DebouncedTextSync(() => _textSync.SyncStable());
+            }
 
-            if (!_engine.Start())
+            if (!EngineStart())
             {
                 _capture.Stop();
                 FailFromEngine("Start rejected by engine");
                 return;
             }
 
-            _pumpCancellation?.Dispose();
-            _pumpCancellation = new CancellationTokenSource();
-            CancellationToken token = _pumpCancellation.Token;
+            _loggedFirstEvent = false;
+            Interlocked.Exchange(ref _lastCaptureLoggedRaw, 0);
+            Interlocked.Exchange(ref _lastCaptureLoggedEmitted, 0);
+            Interlocked.Exchange(ref _lastHookLoggedRaw, 0);
+            Interlocked.Exchange(ref _lastHookLoggedDropped, 0);
+            CancellationToken token = pumpToken;
             _pumpTask = Task.Run(() => PumpLoopAsync(token), CancellationToken.None);
             _monitorTask = Task.Run(() => MonitorLoopAsync(token), CancellationToken.None);
 
@@ -376,7 +539,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 return;
             }
 
-            _engine.Pause();
+            EnginePause();
             State = SyncState.PAUSED;
             StatusText = "PAUSED";
             FlushPendingMove();
@@ -400,7 +563,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             }
             else if (State == SyncState.PAUSED)
             {
-                _engine.Resume();
+                EngineResume();
                 State = SyncState.RUNNING;
                 StatusText = "RUNNING";
                 SyncUiState(force: true);
@@ -447,7 +610,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             }
 
             _capture?.Stop();
-            _engine.Stop();
+            EngineStop();
             State = SyncState.IDLE;
             StatusText = "READY";
             SyncUiState(force: true);
@@ -468,6 +631,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             _pumpTask = null;
             _monitorTask = null;
             _moveCoalescer.Clear();
+            _rotationAttempts = 1;
             try
             {
                 _debouncer?.Dispose();
@@ -487,7 +651,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         {
         }
 
-        _engine.EmergencyStop();
+        EngineEmergencyStop();
         State = SyncState.IDLE;
         StatusText = "READY";
         SyncUiState(force: true);
@@ -543,6 +707,14 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
         try
         {
+            _rotationEngine?.Dispose();
+        }
+        catch
+        {
+        }
+
+        try
+        {
             _pumpCancellation?.Dispose();
         }
         catch
@@ -579,13 +751,22 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
                 _latency.RecordEnqueued(evt.Id, evt.Timestamp);
                 Interlocked.Increment(ref _eventsReceived);
+                if (!_loggedFirstEvent)
+                {
+                    _loggedFirstEvent = true;
+                    AddLog($"First live event: {evt.Type}/{evt.Action} vk={evt.Vk} x={evt.X},y={evt.Y}.");
+                }
 
                 bool? queued;
                 if (evt.Type == InputEventType.Keyboard)
                 {
-                    if (_backendMode == TargetBackend.Foreground)
+                    if (IsRotation)
                     {
-                        queued = (_engine?.TryQueueKeyboard(ToKeyboard(evt)) == true);
+                        queued = QueueRotationKeyboard(evt);
+                    }
+                    else if (_backendMode != TargetBackend.Broadcast)
+                    {
+                        queued = TryQueueKeyboardToActive(ToKeyboard(evt));
                     }
                     else
                     {
@@ -634,7 +815,13 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }
 
         _debouncer?.Trigger();
-        return _engine?.TryQueueKeyboard(ToKeyboard(evt)) == true;
+        return TryQueueKeyboardToActive(ToKeyboard(evt));
+    }
+
+    private bool QueueRotationKeyboard(NormalizedInputEvent evt)
+    {
+        // Rotation mirrors physical key events only; text and clipboard mirroring are disabled.
+        return TryQueueKeyboardToActive(ToKeyboard(evt));
     }
 
     private bool QueueBroadcastMouse(NormalizedInputEvent evt)
@@ -644,7 +831,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         {
             if (_moveCoalescer.OfferMove(mouse, out MouseEventData toSend))
             {
-                return _engine?.TryQueueMouse(toSend) == true;
+                return TryQueueMouseToActive(toSend);
             }
 
             SyncUiState(force: false);
@@ -652,7 +839,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }
 
         FlushPendingMove();
-        return _engine?.TryQueueMouse(mouse) == true;
+        return TryQueueMouseToActive(mouse);
     }
 
     private static KeyboardEventData ToKeyboard(NormalizedInputEvent evt)
@@ -683,7 +870,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private void FlushPendingMove()
     {
         if (_moveCoalescer.Flush(out MouseEventData pending)
-            && !_engine.TryQueueMouse(pending))
+            && !TryQueueMouseToActive(pending))
         {
             Interlocked.Increment(ref _eventsDropped);
         }
@@ -808,8 +995,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
         }
 
         KeyboardEventData down = ToKeyboard(evt);
-        _engine.TryQueueKeyboard(down);
-        _engine.TryQueueKeyboard(down with { Action = KeyboardAction.Up });
+        TryQueueKeyboardToActive(down);
+        TryQueueKeyboardToActive(down with { Action = KeyboardAction.Up });
     }
 
     private string? ReadSourceText()
@@ -846,7 +1033,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     private void EmitTextToTargets(string text)
     {
-        if (string.IsNullOrEmpty(text))
+        if (IsRotation || string.IsNullOrEmpty(text))
         {
             return;
         }
@@ -868,7 +1055,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
             nint hwnd = target.Window.Hwnd;
             if (!WindowManager.IsWindowValid(hwnd))
             {
-                _engine.RemoveTarget(hwnd);
+                EngineRemoveTarget(hwnd);
                 target.Status = TargetStatus.WINDOW_LOST;
                 changed = true;
                 continue;
@@ -900,12 +1087,73 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
         long received = Interlocked.Read(ref _eventsReceived);
         long dropped = Interlocked.Read(ref _eventsDropped);
-        long dispatched = _targetAdapter.EventsDispatched;
-        double averageMs = _latency.AverageMs;
-        double maxMs = _latency.MaxMs;
-        IReadOnlyDictionary<nint, TargetStatus> engineTargets = _engine.Targets;
-        SyncState engineState = _engine.State;
+        GameRotationEngine? rotation = IsRotation ? _rotationEngine : null;
+        long dispatched = rotation?.EventsDispatched ?? _targetAdapter.EventsDispatched;
+        long dispatchFailures = rotation is null
+            ? _targetAdapter.SendFailures + _foregroundAdapter.SendFailures
+            : rotation.DispatchFailures + rotation.SendFailures;
+        double averageMs = rotation?.AvgLatencyMs ?? _latency.AverageMs;
+        double maxMs = rotation?.MaxLatencyMs ?? _latency.MaxMs;
+        IReadOnlyDictionary<nint, TargetStatus> engineTargets = EngineTargets();
+        SyncState engineState = EngineState();
+        int activeTargets = rotation is null
+            ? CountTargets(TargetStatus.ACTIVE)
+            : engineTargets.Count(pair => pair.Value == TargetStatus.ACTIVE);
+        int lostTargets = rotation is null
+            ? CountTargets(TargetStatus.WINDOW_LOST)
+            : (int)Math.Min(int.MaxValue, rotation.LostTargets);
         nint? sourceHwnd = _source?.Hwnd;
+        InputCapture? captureForMetrics = _capture;
+        long hookRawForMetrics = captureForMetrics?.HookRawReceived ?? 0;
+        long hookDroppedForMetrics = captureForMetrics?.HookInjectedDropped ?? 0;
+        long captureRawForMetrics = captureForMetrics?.RawSeen ?? 0;
+        long captureNormalizedForMetrics = captureForMetrics?.NormalizedEmitted ?? 0;
+        long filteredForMetrics = captureForMetrics?.FilteredEvents ?? 0;
+
+        if (rotation is not null)
+        {
+            long focusFailures = rotation.FocusFailures;
+            long previousFocusFailures = Interlocked.Exchange(ref _lastRotationFocusFailures, focusFailures);
+            if (focusFailures > previousFocusFailures)
+            {
+                AddLog($"Rotation focus failures: {focusFailures}/{rotation.FocusAttempts} attempts.");
+            }
+
+            long sendFailures = rotation.SendFailures;
+            long previousSendFailures = Interlocked.Exchange(ref _lastRotationSendFailures, sendFailures);
+            if (sendFailures > previousSendFailures)
+            {
+                AddLog($"Rotation send failures: {sendFailures}/{rotation.Sends + sendFailures} sends.");
+            }
+
+            InputCapture? liveCapture = _capture;
+            if (liveCapture is not null)
+            {
+                long raw = liveCapture.RawSeen;
+                long emitted = liveCapture.NormalizedEmitted;
+                long hookRaw = liveCapture.HookRawReceived;
+                long hookDropped = liveCapture.HookInjectedDropped;
+                long prevRaw = Interlocked.Exchange(ref _lastCaptureLoggedRaw, raw);
+                long prevEmitted = Interlocked.Exchange(ref _lastCaptureLoggedEmitted, emitted);
+                long prevHookRaw = Interlocked.Exchange(ref _lastHookLoggedRaw, hookRaw);
+                Interlocked.Exchange(ref _lastHookLoggedDropped, hookDropped);
+                if ((raw != prevRaw || emitted != prevEmitted) && received <= 1)
+                {
+                    AddLog($"Capture flow: hookRaw={hookRaw} injectedDropped={hookDropped} rawSeen={raw} normalized={emitted} pumpReceived={received}.");
+                }
+
+                long kbdRaw = liveCapture.HookKbdRaw;
+                long kbdDropped = liveCapture.HookKbdDropped;
+                long mouseRaw = liveCapture.HookMouseRaw;
+                long mouseDropped = liveCapture.HookMouseDropped;
+                if (hookRaw != prevHookRaw && received == 0)
+                {
+                    string drops = string.Join(" | ", liveCapture.HookDropSamples);
+                    string accepts = string.Join(" | ", liveCapture.HookAcceptSamples);
+                    AddLog($"Hook split: kbd raw={kbdRaw} dropped={kbdDropped} mouse raw={mouseRaw} dropped={mouseDropped}. Drops: {drops}. Accepts: {accepts}.");
+                }
+            }
+        }
 
         Marshal(() =>
         {
@@ -914,10 +1162,14 @@ public sealed class RealSyncController : ISyncController, IDisposable
             Metrics.EventsDropped = dropped;
             Metrics.AverageLatencyMs = averageMs;
             Metrics.MaxLatencyMs = maxMs;
-            Metrics.FilteredEvents = _capture?.FilteredEvents ?? 0;
+            Metrics.FilteredEvents = filteredForMetrics;
+            Metrics.HookRaw = hookRawForMetrics;
+            Metrics.InjectedDropped = hookDroppedForMetrics;
+            Metrics.CaptureRawSeen = captureRawForMetrics;
+            Metrics.CaptureNormalized = captureNormalizedForMetrics;
             Metrics.TextCharsEmitted = Interlocked.Read(ref _textCharsEmitted);
             Metrics.MovesCoalesced = _moveCoalescer.Coalesced;
-            Metrics.DispatchFailures = _targetAdapter.SendFailures + _foregroundAdapter.SendFailures;
+            Metrics.DispatchFailures = dispatchFailures;
             string? mouseTrace = Volatile.Read(ref _lastMouseTrace);
             if (!string.IsNullOrEmpty(mouseTrace))
             {
@@ -942,8 +1194,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 }
             }
 
-            Metrics.ActiveTargets = CountTargets(TargetStatus.ACTIVE);
-            Metrics.LostTargets = CountTargets(TargetStatus.WINDOW_LOST);
+            Metrics.ActiveTargets = activeTargets;
+            Metrics.LostTargets = lostTargets;
 
             if (_state == SyncState.RUNNING && engineState == SyncState.ERROR)
             {
@@ -971,7 +1223,7 @@ public sealed class RealSyncController : ISyncController, IDisposable
     private void FailFromEngine(string prefix)
     {
         State = SyncState.ERROR;
-        StatusText = _engine.Fault switch
+        StatusText = EngineFault() switch
         {
             SyncControllerFault.SOURCE_LOST => "SOURCE LOST",
             SyncControllerFault.ADAPTER_UNSUPPORTED => "ADAPTER UNSUPPORTED",
@@ -1016,11 +1268,11 @@ public sealed class RealSyncController : ISyncController, IDisposable
             nint hwnd = target.Window.Hwnd;
             if (target.Enabled)
             {
-                target.Status = _engine.AddTarget(hwnd) ? TargetStatus.ACTIVE : TargetStatus.WINDOW_LOST;
+                target.Status = EngineAddTarget(hwnd) ? TargetStatus.ACTIVE : TargetStatus.WINDOW_LOST;
             }
             else
             {
-                _engine.RemoveTarget(hwnd);
+                EngineRemoveTarget(hwnd);
             }
         }
 
@@ -1061,8 +1313,12 @@ public sealed class RealSyncController : ISyncController, IDisposable
                 await Task.Delay(250, cancellationToken).ConfigureAwait(false);
                 if (State == SyncState.RUNNING)
                 {
-                    FlushPendingMove();
-                    _debouncer?.Trigger();
+                    if (_backendMode == TargetBackend.Broadcast)
+                    {
+                        FlushPendingMove();
+                        _debouncer?.Trigger();
+                    }
+
                     SyncUiState(force: false);
                 }
             }

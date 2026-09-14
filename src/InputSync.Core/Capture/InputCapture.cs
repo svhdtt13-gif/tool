@@ -33,6 +33,8 @@ public sealed class InputCapture : IDisposable
     private CancellationTokenSource? _captureCancellation;
     private Task? _processingTask;
     private nint _sourceHwnd;
+    private long _rawSeen;
+    private long _normalizedEmitted;
     private long _filteredEvents;
     private bool _disposed;
 
@@ -67,6 +69,34 @@ public sealed class InputCapture : IDisposable
     public ChannelReader<NormalizedInputEvent> Reader => _events.Reader;
 
     public long FilteredEvents => Interlocked.Read(ref _filteredEvents);
+
+    public long RawSeen => Interlocked.Read(ref _rawSeen);
+
+    public long NormalizedEmitted => Interlocked.Read(ref _normalizedEmitted);
+
+    public long Filtered => FilteredEvents;
+
+    public long HookRawReceived => _hooks.RawReceived;
+
+    public long HookInjectedDropped => _hooks.InjectedDropped;
+
+    public long HookKbdRaw => _hooks.KbdRaw;
+
+    public long HookKbdDropped => _hooks.KbdDropped;
+
+    public long HookMouseRaw => _hooks.MouseRaw;
+
+    public long HookMouseDropped => _hooks.MouseDropped;
+
+    public IReadOnlyList<string> HookDropSamples => _hooks.DropSamples;
+
+    public IReadOnlyList<string> HookAcceptSamples => _hooks.AcceptSamples;
+
+    public nint HookKeyboardHandle => _hooks.KeyboardHook;
+
+    public nint HookMouseHandle => _hooks.MouseHook;
+
+    public uint HookPumpThreadId => _hooks.PumpThreadId;
 
     public bool RequireForeground { get; set; } = true;
 
@@ -163,6 +193,7 @@ public sealed class InputCapture : IDisposable
     {
         await foreach (RawHookEvent rawEvent in _rawEvents.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
+            Interlocked.Increment(ref _rawSeen);
             nint sourceHwnd = SourceHwnd;
             nint foregroundHwnd = GetForegroundWindow();
             if (RequireForeground && foregroundHwnd != sourceHwnd && !IsChild(sourceHwnd, foregroundHwnd))
@@ -177,7 +208,10 @@ public sealed class InputCapture : IDisposable
 
             if (normalized is not null)
             {
-                _events.Writer.TryWrite(normalized);
+                if (_events.Writer.TryWrite(normalized))
+                {
+                    Interlocked.Increment(ref _normalizedEmitted);
+                }
             }
         }
     }

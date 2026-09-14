@@ -19,6 +19,15 @@ public sealed class LowLevelHooks : IDisposable
     private Thread? _pumpThread;
     private uint _pumpThreadId;
     private Exception? _pumpError;
+    private long _rawReceived;
+    private long _injectedDropped;
+    private long _kbdRaw;
+    private long _kbdDropped;
+    private long _mouseRaw;
+    private long _mouseDropped;
+    private readonly object _sampleGate = new();
+    private readonly List<string> _dropSamples = [];
+    private readonly List<string> _acceptSamples = [];
     private bool _disposed;
 
     public LowLevelHooks(ChannelWriter<RawHookEvent> writer)
@@ -26,6 +35,55 @@ public sealed class LowLevelHooks : IDisposable
         _writer = writer ?? throw new ArgumentNullException(nameof(writer));
         _keyboardProc = KeyboardCallback;
         _mouseProc = MouseCallback;
+    }
+
+    public long RawReceived => Interlocked.Read(ref _rawReceived);
+
+    public long InjectedDropped => Interlocked.Read(ref _injectedDropped);
+
+    public long KbdRaw => Interlocked.Read(ref _kbdRaw);
+
+    public long KbdDropped => Interlocked.Read(ref _kbdDropped);
+
+    public long MouseRaw => Interlocked.Read(ref _mouseRaw);
+
+    public long MouseDropped => Interlocked.Read(ref _mouseDropped);
+
+    public IReadOnlyList<string> DropSamples
+    {
+        get
+        {
+            lock (_sampleGate)
+            {
+                return [.. _dropSamples];
+            }
+        }
+    }
+
+    public IReadOnlyList<string> AcceptSamples
+    {
+        get
+        {
+            lock (_sampleGate)
+            {
+                return [.. _acceptSamples];
+            }
+        }
+    }
+
+    public nint KeyboardHook => Volatile.Read(ref _keyboardHook);
+
+    public nint MouseHook => Volatile.Read(ref _mouseHook);
+
+    public uint PumpThreadId
+    {
+        get
+        {
+            lock (_lifecycleGate)
+            {
+                return _pumpThreadId;
+            }
+        }
     }
 
     public void Install()
@@ -188,10 +246,22 @@ public sealed class LowLevelHooks : IDisposable
     {
         if (nCode >= 0)
         {
+            Interlocked.Increment(ref _rawReceived);
+            Interlocked.Increment(ref _kbdRaw);
             try
             {
                 KBDLLHOOKSTRUCT data = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
-                _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
+                if (IsInjectedKeyboard(data.Flags))
+                {
+                    Interlocked.Increment(ref _injectedDropped);
+                    Interlocked.Increment(ref _kbdDropped);
+                    RememberSample(_dropSamples, $"kbd msg=0x{wParam:X} vk={data.VkCode} scan={data.ScanCode} flags=0x{data.Flags:X}");
+                }
+                else
+                {
+                    RememberSample(_acceptSamples, $"kbd msg=0x{wParam:X} vk={data.VkCode} flags=0x{data.Flags:X}");
+                    _writer.TryWrite(RawHookEvent.Keyboard((uint)wParam, data));
+                }
             }
             catch (Exception)
             {
@@ -205,10 +275,22 @@ public sealed class LowLevelHooks : IDisposable
     {
         if (nCode >= 0)
         {
+            Interlocked.Increment(ref _rawReceived);
+            Interlocked.Increment(ref _mouseRaw);
             try
             {
                 MSLLHOOKSTRUCT data = Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
-                _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
+                if (IsInjectedMouse(data.Flags))
+                {
+                    Interlocked.Increment(ref _injectedDropped);
+                    Interlocked.Increment(ref _mouseDropped);
+                    RememberSample(_dropSamples, $"mouse msg=0x{wParam:X} x={data.Point.X},y={data.Point.Y} data=0x{data.MouseData:X} flags=0x{data.Flags:X}");
+                }
+                else
+                {
+                    RememberSample(_acceptSamples, $"mouse msg=0x{wParam:X} flags=0x{data.Flags:X}");
+                    _writer.TryWrite(RawHookEvent.Mouse((uint)wParam, data));
+                }
             }
             catch (Exception)
             {
@@ -217,6 +299,25 @@ public sealed class LowLevelHooks : IDisposable
 
         return CallNextHookEx(nint.Zero, nCode, wParam, lParam);
     }
+
+    public static bool IsInjectedKeyboard(uint flags) => (flags & LLKHF_INJECTED) != 0;
+
+    public static bool IsInjectedMouse(uint flags) => (flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED)) != 0;
+
+    private void RememberSample(List<string> bucket, string line)
+    {
+        lock (_sampleGate)
+        {
+            if (bucket.Count < 5)
+            {
+                bucket.Add(line);
+            }
+        }
+    }
+
+    private const uint LLKHF_INJECTED = 0x10;
+    private const uint LLMHF_INJECTED = 0x01;
+    private const uint LLMHF_LOWER_IL_INJECTED = 0x02;
 
     private delegate nint HookProc(int nCode, nuint wParam, nint lParam);
 

@@ -98,6 +98,10 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     private long _textCharsEmitted;
     private long _movesCoalesced;
     private long _dispatchFailures;
+    private long _hookRaw;
+    private long _injectedDropped;
+    private long _captureRawSeen;
+    private long _captureNormalized;
     private int _activeTargets;
     private int _lostTargets;
     private double _averageLatencyMs;
@@ -119,6 +123,14 @@ public sealed class SyncMetrics : INotifyPropertyChanged
     public long MovesCoalesced { get => _movesCoalesced; set => Set(ref _movesCoalesced, value, nameof(MovesCoalesced)); }
 
     public long DispatchFailures { get => _dispatchFailures; set => Set(ref _dispatchFailures, value, nameof(DispatchFailures)); }
+
+    public long HookRaw { get => _hookRaw; set => Set(ref _hookRaw, value, nameof(HookRaw)); }
+
+    public long InjectedDropped { get => _injectedDropped; set => Set(ref _injectedDropped, value, nameof(InjectedDropped)); }
+
+    public long CaptureRawSeen { get => _captureRawSeen; set => Set(ref _captureRawSeen, value, nameof(CaptureRawSeen)); }
+
+    public long CaptureNormalized { get => _captureNormalized; set => Set(ref _captureNormalized, value, nameof(CaptureNormalized)); }
 
     public int ActiveTargets { get => _activeTargets; set => Set(ref _activeTargets, value, nameof(ActiveTargets)); }
 

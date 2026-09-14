@@ -43,6 +43,21 @@ IME). Capture-all is used in this mode because the source cannot hold
 focus while the target receives. This mode is single-target by nature
 and does not satisfy 1-source → N-clients.
 
+## Focus rotation for N game clients (Issue #11)
+
+`RotatingSendInputAdapter` wraps `ForegroundSendInputAdapter`: for every
+event it focuses each valid target in stable order (verify after every
+handoff, retry a few times, skip on persistent failure without hanging
+the pipeline), then injects. Per-event trace lines read
+`route #id kbd/mouse … -> 0xHWND focus=… send=True/False`.
+Down/Up order, modifiers and extended flags are preserved because the
+same event object replays sequentially; pressed-state tracking and
+release-all stay in the engine. Stopping or Emergency Stop aborts
+rotation; emergency uses a single focus attempt for speed. Select the
+`GameRotation` backend in the UI; it refuses to start with zero enabled
+targets. This is still sequential rotation, never simultaneous
+background input.
+
 ## Runtime evidence (this machine, 2026-09-11)
 
 - `ForegroundSendInputAdapter` verified live: fresh Notepad focused via
