@@ -39,7 +39,8 @@ public sealed class GameRotationEngineTests
         HashSet<nint>? failingSend = null,
         Action<string>? trace = null,
         Func<MouseEventData, nint, MouseEventData>? translate = null,
-        Func<nint, bool>? isWindow = null)
+        Func<nint, bool>? isWindow = null,
+        Func<nint>? getForeground = null)
     {
         sender.FailingTargets = failingSend;
         var engine = new GameRotationEngine(
@@ -54,7 +55,8 @@ public sealed class GameRotationEngineTests
                     : (true, "test focus ok");
             },
             translate ?? ((data, target) => data with { TargetHwnd = target }),
-            trace);
+            trace,
+            getForeground);
         engine.SetSource(new nint(1));
         return engine;
     }
@@ -262,6 +264,43 @@ public sealed class GameRotationEngineTests
 
         Assert.Equal(new nint(1), focusLog[^1]);
         Assert.DoesNotContain(focusLog, hwnd => hwnd == nint.Zero);
+    }
+
+    [Fact]
+    public void ReturnFocus_SkippedWhenUserMovedElsewhere()
+    {
+        var sender = new FakeSender();
+        var focusLog = new List<nint>();
+        using var engine = CreateEngine(sender, focusLog, getForeground: () => new nint(999));
+        engine.AddTarget(new nint(100));
+        engine.AddTarget(new nint(200));
+
+        Assert.True(engine.Start());
+        Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x31, KeyboardAction.Down)));
+        WaitFor(() => sender.Keys.Count >= 2);
+
+        Assert.Contains(focusLog, hwnd => hwnd == new nint(100));
+        Assert.Contains(focusLog, hwnd => hwnd == new nint(200));
+        Assert.DoesNotContain(focusLog, hwnd => hwnd == new nint(1));
+    }
+
+    [Fact]
+    public void ReturnFocus_SkippedWhenNothingSent()
+    {
+        var sender = new FakeSender();
+        var focusLog = new List<nint>();
+        using var engine = CreateEngine(
+            sender,
+            focusLog,
+            failingSend: new HashSet<nint> { new(100), new(200) });
+        engine.AddTarget(new nint(100));
+        engine.AddTarget(new nint(200));
+
+        Assert.True(engine.Start());
+        Assert.True(engine.TryQueueKeyboard(Key(nint.Zero, 0x31, KeyboardAction.Down)));
+        WaitFor(() => engine.SendFailures >= 2);
+
+        Assert.Equal(new nint[] { new(100), new(200) }, focusLog);
     }
 
     [Fact]

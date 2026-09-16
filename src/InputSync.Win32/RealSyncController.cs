@@ -433,7 +433,8 @@ public sealed class RealSyncController : ISyncController, IDisposable
                     target,
                     _coordinateMode,
                     data),
-                AddLog);
+                AddLog,
+                ReadForegroundWindow);
             _rotationAttempts = 3;
             Interlocked.Exchange(ref _lastRotationFocusFailures, 0);
             Interlocked.Exchange(ref _lastRotationSendFailures, 0);
@@ -1426,6 +1427,21 @@ public sealed class RealSyncController : ISyncController, IDisposable
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int virtualKey);
+
+    private static nint ReadForegroundWindow()
+    {
+        try
+        {
+            return GetForegroundWindow();
+        }
+        catch
+        {
+            return nint.Zero;
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
 
     [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     private static extern nint SendMessageTimeout(

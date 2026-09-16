@@ -15,6 +15,7 @@ public sealed class GameRotationEngine : IDisposable
     private readonly Func<nint, bool> _isWindow;
     private readonly Func<nint, (bool Ok, string Detail)> _ensureForeground;
     private readonly Func<MouseEventData, nint, MouseEventData>? _translateMouse;
+    private readonly Func<nint>? _getForeground;
     private readonly Action<string>? _trace;
     private readonly Channel<QueuedInput> _channel;
     private readonly List<nint> _targetOrder = [];
@@ -46,6 +47,7 @@ public sealed class GameRotationEngine : IDisposable
         Func<nint, (bool Ok, string Detail)> ensureForeground,
         Func<MouseEventData, nint, MouseEventData>? translateMouse = null,
         Action<string>? trace = null,
+        Func<nint>? getForeground = null,
         int queueCapacity = 2048)
     {
         _sender = sender ?? throw new ArgumentNullException(nameof(sender));
@@ -53,6 +55,8 @@ public sealed class GameRotationEngine : IDisposable
         _isWindow = isWindow ?? throw new ArgumentNullException(nameof(isWindow));
         _ensureForeground = ensureForeground ?? throw new ArgumentNullException(nameof(ensureForeground));
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(queueCapacity);
+
+        _getForeground = getForeground;
 
         _translateMouse = translateMouse;
         _trace = trace;
@@ -408,6 +412,7 @@ public sealed class GameRotationEngine : IDisposable
         CancellationToken cancellationToken,
         long generation)
     {
+        bool anySent = false;
         foreach (nint target in targets)
         {
             if (cancellationToken.IsCancellationRequested || generation != Generation)
@@ -489,6 +494,7 @@ public sealed class GameRotationEngine : IDisposable
 
             if (sent)
             {
+                anySent = true;
                 Interlocked.Increment(ref _sends);
                 Interlocked.Increment(ref _eventsDispatched);
                 TrackSuccessfulSend(target, input);
@@ -511,9 +517,9 @@ public sealed class GameRotationEngine : IDisposable
             RecordLatency(input.EnqueueTicks);
         }
 
-        if (targets.Count > 0)
+        if (targets.Count > 0 && anySent)
         {
-            ReturnFocusToSource(source, cancellationToken, generation);
+            ReturnFocusToSource(source, targets, cancellationToken, generation);
         }
     }
 
@@ -525,7 +531,11 @@ public sealed class GameRotationEngine : IDisposable
         }
     }
 
-    private void ReturnFocusToSource(nint source, CancellationToken cancellationToken, long generation)
+    private void ReturnFocusToSource(
+        nint source,
+        IReadOnlyList<nint> rotationTargets,
+        CancellationToken cancellationToken,
+        long generation)
     {
         if (source == nint.Zero
             || cancellationToken.IsCancellationRequested
@@ -533,6 +543,37 @@ public sealed class GameRotationEngine : IDisposable
             || !SafeIsWindow(source))
         {
             return;
+        }
+
+        if (_getForeground is not null)
+        {
+            nint foreground;
+            try
+            {
+                foreground = _getForeground();
+            }
+            catch
+            {
+                return;
+            }
+
+            bool ours = foreground == source;
+            if (!ours)
+            {
+                foreach (nint target in rotationTargets)
+                {
+                    if (foreground == target)
+                    {
+                        ours = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!ours)
+            {
+                return;
+            }
         }
 
         SafeEnsureForeground(source);
@@ -626,7 +667,7 @@ public sealed class GameRotationEngine : IDisposable
             ReleaseTarget(target, isEmergency);
         }
 
-        ReturnFocusToSource(source, CancellationToken.None, Generation);
+        ReturnFocusToSource(source, targets, CancellationToken.None, Generation);
 
         lock (_stateGate)
         {
